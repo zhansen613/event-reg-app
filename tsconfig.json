@@ -1,5 +1,10 @@
 {
 "compilerOptions": {
+    // ...the rest of your existing options...
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  }
+}
 "target": "esnext",
 "lib": ["dom", "dom.iterable", "esnext"],
 "allowJs": true,
