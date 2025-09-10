@@ -15,7 +15,7 @@ export default async function Home() {
     <main className="mx-auto max-w-4xl p-6">
       <h1 className="text-3xl font-semibold mb-4">Events</h1>
       <div className="grid md:grid-cols-2 gap-4">
-        {events.map((e) => (
+      {events.map((e: any) => (
           <div key={e.id} className="rounded-2xl border p-4 bg-white">
             <h3 className="text-lg font-semibold">{e.title}</h3>
             <p className="text-sm text-gray-600">
