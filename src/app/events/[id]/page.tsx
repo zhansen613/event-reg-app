@@ -26,16 +26,43 @@ export default async function EventPage({ params }: { params: { id: string } }) 
   const seatsLeft = Math.max((counts?.capacity ?? 0) - (counts?.confirmed_count ?? 0), 0)
   const isFull = seatsLeft <= 0
 
+  const proxied = (url: string) => `/img?u=${encodeURIComponent(url)}`
+
   return (
     <main className="mx-auto max-w-2xl p-6">
+      {/* Event image at top */}
+      {event.image_url && (
+        <img
+          src={proxied(event.image_url)}
+          alt=""
+          className="w-full h-56 md:h-72 object-cover rounded-2xl border mb-4"
+        />
+      )}
+
+      {/* Title + meta */}
       <h1 className="text-2xl font-semibold">{event.title}</h1>
       <p className="text-sm text-gray-600">
         {format(new Date(event.start_at), 'PPP p')} · {event.location ?? 'TBA'}
       </p>
-      <p className="mt-3 text-sm">{event.description}</p>
 
+      {/* Event description (optional) */}
+      {event.description && <p className="mt-3 text-sm">{event.description}</p>}
+
+      {/* Admin blurb (above the registration form) */}
+      {event.registration_blurb && (
+        <div className="mt-4 rounded-2xl border bg-white p-3">
+          <p className="text-sm whitespace-pre-line">{event.registration_blurb}</p>
+        </div>
+      )}
+
+      {/* Registration form */}
       <div className="mt-6">
-        <RegisterForm eventId={event.id} isFull={isFull} seatsLeft={seatsLeft} questions={questions} />
+        <RegisterForm
+          eventId={event.id}
+          isFull={isFull}
+          seatsLeft={seatsLeft}
+          questions={questions}
+        />
       </div>
     </main>
   )
