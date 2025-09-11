@@ -11,3 +11,13 @@ html, body {
 .markdown p { color: #374151; }                                 /* gray-700 */
 .markdown a { color: #111827; }                                  /* inherit; underlined via class */
 .markdown ul, .markdown ol { margin-left: 0; }
+/* Markdown defaults */
+.markdown h1,.markdown h2,.markdown h3 { color: #111827; } /* gray-900 */
+.markdown p { color: #374151; }                            /* gray-700 */
+.markdown a { color: #111827; }
+.markdown ul, .markdown ol { margin-left: 0; }
+
+/* Task list (GFM) spacing */
+.markdown li input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
