@@ -267,6 +267,7 @@ export default function Admin() {
 function EventForm({ initial, onSave, secret }: any) {
   const [title, setTitle] = useState(initial?.title || '')
   const [description, setDescription] = useState(initial?.description || '')
+  const [registrationBlurb, setRegistrationBlurb] = useState(initial?.registration_blurb || '')
   const [location, setLocation] = useState(initial?.location || '')
   const [imageUrl, setImageUrl] = useState(initial?.image_url || '')
   const [uploading, setUploading] = useState(false)
@@ -285,7 +286,8 @@ function EventForm({ initial, onSave, secret }: any) {
       location,
       image_url: imageUrl || null,
       start_at: startAt ? new Date(startAt).toISOString() : null,
-      capacity: Number(capacity)
+      capacity: Number(capacity),
+      registration_blurb: registrationBlurb || null,
     }
     await onSave(payload)
   }
@@ -326,6 +328,18 @@ function EventForm({ initial, onSave, secret }: any) {
         <div className="flex flex-col gap-1 sm:col-span-2">
           <label className="text-sm">Description</label>
           <textarea className="border rounded-xl px-3 py-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
+        </div>
+
+        {/* NEW: Registration blurb */}
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className="text-sm">Registration blurb (shows on event page above the form)</label>
+          <textarea
+            className="border rounded-xl px-3 py-2 text-sm"
+            rows={3}
+            placeholder="Any special instructions, parking info, agenda highlights, etc."
+            value={registrationBlurb}
+            onChange={(e)=>setRegistrationBlurb(e.target.value)}
+          />
         </div>
 
         <div className="flex flex-col gap-1 sm:col-span-2">
