@@ -9,7 +9,7 @@ function Modal({ open, onClose, children, title }: any) {
   if (!open) return null
   return (
     <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4">
-      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-4xl p-4">
+      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-5xl p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
@@ -40,6 +40,7 @@ export default function Admin() {
   }, [])
 
   const headers = useMemo(() => ({ 'x-admin-secret': secret }), [secret])
+  const proxied = (url: string) => `/img?u=${encodeURIComponent(url)}`
 
   const checkSecret = async () => {
     setErr(null); setLoading(true)
@@ -100,17 +101,65 @@ export default function Admin() {
     })
     const json = await res.json()
     if (!res.ok) { alert(json.error || 'Promote failed'); return }
-    if (activeEvent) viewRegs(activeEvent) // reload regs
+    if (activeEvent) viewRegs(activeEvent)
   }
 
-  // NOTE: Your CSV export & Registrations modal code should already exist in your version.
-  // (Omitted here for brevity; keep your existing one.)
+  // Dynamic CSV: includes one column per custom question label
+  const exportCSV = async () => {
+    if (!activeEvent) {
+      alert('Open Registrations for an event first')
+      return
+    }
+    try {
+      const qRes = await fetch(`/api/admin/questions?eventId=${activeEvent.id}`, { headers })
+      const qJson = await qRes.json()
+      const questions: Array<{ id: string; label: string }> = qJson.questions || []
+
+      const baseHeaders = ['name','email','dept','status','attended','checkin_at','created_at']
+      const questionHeaders = questions.map(q => q.label)
+      const rows: string[][] = [ [...baseHeaders, ...questionHeaders] ]
+
+      for (const r of regs as any[]) {
+        const base = [
+          r.name,
+          r.email,
+          r.dept || '',
+          r.status,
+          r.attended ? 'yes' : 'no',
+          r.checkin_at || '',
+          r.created_at
+        ]
+        const ans = (r.answers || {}) as Record<string, unknown>
+        const qValues = questions.map((q) => {
+          const v = (ans as any)[q.id]
+          if (v === undefined || v === null) return ''
+          if (Array.isArray(v)) return (v as any[]).join('; ')
+          if (typeof v === 'boolean') return v ? 'yes' : 'no'
+          return String(v)
+        })
+        rows.push([...base, ...qValues])
+      }
+
+      const encode = (s: unknown) => `"${String(s).replaceAll('"','""')}"`
+      const csv = rows.map(r => r.map(encode).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `registrations-${activeEvent?.title || 'event'}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      console.error(e)
+      alert(e.message || 'Export failed')
+    }
+  }
 
   if (!secretOk) {
     return (
       <main className="max-w-sm mx-auto p-6">
         <h1 className="text-2xl font-semibold mb-3">Admin login</h1>
-        <Text>Enter the admin secret you set in Vercel as <code>ADMIN_SECRET</code>.</Text>
+        <Text>Enter the admin secret set in Vercel as <code>ADMIN_SECRET</code>.</Text>
         <input
           type="password"
           value={secret}
@@ -118,9 +167,9 @@ export default function Admin() {
           className="mt-3 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm"
           placeholder="Paste admin secret"
         />
-        <button onClick={checkSecret} disabled={loading} className="mt-3 px-4 py-2 rounded-xl border text-sm">
-          Continue
-        </button>
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={checkSecret} disabled={loading} className="px-4 py-2 rounded-xl border text-sm">Continue</button>
+        </div>
         {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
       </main>
     )
@@ -139,9 +188,8 @@ export default function Admin() {
       <div className="grid md:grid-cols-2 gap-4">
         {events.map((e:any) => (
           <div key={e.id} className="rounded-2xl border p-4 bg-white">
-            {/* Preview image if set */}
             {e.image_url && (
-              <img src={e.image_url} alt="" className="w-full h-40 object-cover rounded-xl border mb-3" />
+              <img src={proxied(e.image_url)} alt="" className="w-full h-40 object-cover rounded-xl border mb-3" />
             )}
             <h3 className="text-lg font-semibold">{e.title}</h3>
             <p className="text-sm text-gray-600">
@@ -159,11 +207,59 @@ export default function Admin() {
         ))}
       </div>
 
+      {/* Registrations Modal */}
+      <Modal open={regOpen} onClose={()=>setRegOpen(false)} title={`Registrations — ${activeEvent?.title || ''}`}>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm text-gray-600">{regs.length} total</p>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>activeEvent && viewRegs(activeEvent)} className="px-3 py-1.5 rounded-lg border text-xs">Refresh</button>
+            <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg border text-xs">Export CSV</button>
+          </div>
+        </div>
+
+        <div className="max-h-96 overflow-auto border rounded-xl">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left p-2">Name</th>
+                <th className="text-left p-2">Email</th>
+                <th className="text-left p-2">Dept</th>
+                <th className="text-left p-2">Status</th>
+                <th className="text-left p-2">Attended</th>
+                <th className="text-left p-2">Check-in</th>
+                <th className="text-left p-2">When Registered</th>
+                <th className="text-left p-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {regs.map((r:any) => (
+                <tr key={r.id} className="border-t">
+                  <td className="p-2">{r.name}</td>
+                  <td className="p-2">{r.email}</td>
+                  <td className="p-2">{r.dept || ''}</td>
+                  <td className="p-2">{r.status}</td>
+                  <td className="p-2">{r.attended ? '✓' : ''}</td>
+                  <td className="p-2">{r.checkin_at ? format(new Date(r.checkin_at), 'PP p') : ''}</td>
+                  <td className="p-2">{format(new Date(r.created_at), 'PP p')}</td>
+                  <td className="p-2 text-right">
+                    {r.status === 'waitlisted' && (
+                      <button onClick={()=>promote(r.id)} className="px-2 py-1 rounded-lg border text-xs">Promote</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {regs.length === 0 && (
+                <tr><td className="p-2 text-gray-600 text-sm" colSpan={8}>No registrations yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      {/* Event form modal */}
       <Modal open={formOpen} onClose={()=>setFormOpen(false)} title={editing ? 'Edit event' : 'New event'}>
         <EventForm initial={editing} onSave={saveEvent} secret={secret} />
       </Modal>
-
-      {/* Keep your existing Registrations modal here */}
     </main>
   )
 }
@@ -251,7 +347,7 @@ function EventForm({ initial, onSave, secret }: any) {
               />
             </label>
           </div>
-          {imageUrl && <img src={imageUrl} alt="" className="mt-2 w-full h-36 object-cover rounded-xl border" />}
+          {imageUrl && <img src={`/img?u=${encodeURIComponent(imageUrl)}`} alt="" className="mt-2 w-full h-36 object-cover rounded-xl border" />}
         </div>
 
         <div className="flex flex-col gap-1">
