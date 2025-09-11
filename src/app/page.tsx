@@ -4,6 +4,8 @@ import { unstable_noStore as noStore } from 'next/cache'
 import { supabaseServer } from '@/lib/supabase'
 import { format } from 'date-fns'
 import Link from 'next/link'
+import Markdown from '@/components/Markdown'
+
 
 async function getData() {
   noStore()
@@ -28,7 +30,11 @@ export default async function HomePage() {
       )}
 
       <h1 className="text-3xl font-semibold">{landingTitle}</h1>
-      {landingBody && <p className="mt-2 text-sm text-gray-700">{landingBody}</p>}
+      {landingBody && (
+  <div className="mt-2">
+    <Markdown>{landingBody}</Markdown>
+  </div>
+)}
 
       <div className="mt-6 grid md:grid-cols-2 gap-4">
         {events.map((e: any) => (
