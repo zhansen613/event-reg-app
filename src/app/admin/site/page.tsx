@@ -12,6 +12,7 @@ function SiteInner() {
     landing_body: '',
     hero_image_url: ''
   })
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     const s = localStorage.getItem('admin_secret')
@@ -48,6 +49,27 @@ function SiteInner() {
     } finally { setLoading(false) }
   }
 
+  const uploadHero = async (file: File) => {
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('kind', 'hero')
+      fd.append('file', file)
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: { 'x-admin-secret': secret },
+        body: fd
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Upload failed')
+      setForm(f => ({ ...f, hero_image_url: json.url }))
+    } catch (e:any) {
+      alert(e.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <div className="flex items-center justify-between mb-4">
@@ -69,12 +91,26 @@ function SiteInner() {
       <div className="rounded-2xl border p-4 bg-white">
         <div className="grid gap-3">
           <div>
-            <label className="text-sm">Hero Image URL (optional)</label>
-            <input className="border rounded-xl px-3 py-2 text-sm w-full"
-                   value={form.hero_image_url}
-                   onChange={(e)=>setForm({...form, hero_image_url: e.target.value})}
-                   placeholder="https://..." />
+            <label className="text-sm">Hero Image</label>
+            <div className="flex items-center gap-2">
+              <input
+                className="border rounded-xl px-3 py-2 text-sm w-full"
+                value={form.hero_image_url}
+                onChange={(e)=>setForm({...form, hero_image_url: e.target.value})}
+                placeholder="https://..."
+              />
+              <label className="px-3 py-2 rounded-xl border text-sm cursor-pointer">
+                {uploading ? 'Uploading…' : 'Upload'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e)=>{ const f=e.target.files?.[0]; if (f) uploadHero(f) }}
+                />
+              </label>
+            </div>
           </div>
+
           <div>
             <label className="text-sm">Landing Title</label>
             <input className="border rounded-xl px-3 py-2 text-sm w-full"
@@ -89,6 +125,7 @@ function SiteInner() {
                       placeholder="Short description or welcome text..." />
           </div>
         </div>
+
         <div className="mt-3 flex gap-2">
           <button onClick={save} disabled={loading} className="px-4 py-2 rounded-xl border text-sm">Save</button>
           <button onClick={load} className="px-4 py-2 rounded-xl border text-sm">Reload</button>
