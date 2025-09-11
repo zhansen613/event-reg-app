@@ -1,5 +1,7 @@
 'use client'
 import { Suspense, useEffect, useMemo, useState } from 'react'
+import Markdown from '@/components/Markdown'
+
 
 export const dynamic = 'force-dynamic'
 
@@ -135,13 +137,18 @@ function SiteInner() {
       </div>
 
       {form.hero_image_url && (
-        <div className="rounded-2xl border p-4 bg-white mt-4">
-          <p className="text-sm text-gray-600 mb-2">Preview</p>
-          <img src={proxied(form.hero_image_url)} alt="" className="w-full h-48 object-cover rounded-xl border" />
-          <h2 className="mt-3 text-xl font-semibold">{form.landing_title}</h2>
-          {form.landing_body && <p className="mt-1 text-sm">{form.landing_body}</p>}
-        </div>
-      )}
+  <div className="rounded-2xl border p-4 bg-white mt-4">
+    <p className="text-sm text-gray-600 mb-2">Preview</p>
+    <img src={`/img?u=${encodeURIComponent(form.hero_image_url)}`} alt="" className="w-full h-48 object-cover rounded-xl border" />
+    <h2 className="mt-3 text-xl font-semibold">{form.landing_title}</h2>
+    {form.landing_body && (
+      <div className="mt-1">
+        <Markdown>{form.landing_body}</Markdown>
+      </div>
+    )}
+  </div>
+)}
+
     </main>
   )
 }
