@@ -202,11 +202,12 @@ export default function Admin() {
             </p>
             <p className="text-sm mt-2 line-clamp-3">{e.description}</p>
             <div className="mt-3 flex items-center gap-2">
-              <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
-              <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
-              <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
-              <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
-            </div>
+  <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
+  <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
+  <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
+  <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
+  <a href={`/admin/insights?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Insights</a>
+</div>
           </div>
         ))}
       </div>
