@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     end_at: body.end_at || null,
     capacity: body.capacity ?? 50,
     image_url: body.image_url || null,
+    registration_blurb: body.registration_blurb || null,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
