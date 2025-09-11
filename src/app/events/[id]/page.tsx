@@ -2,6 +2,9 @@ import { supabaseServer } from '@/lib/supabase'
 import RegisterForm from './register-form'
 import { format } from 'date-fns'
 
+export const dynamic = 'force-dynamic' // or: export const revalidate = 10
+
+
 async function getEvent(id: string) {
   const sb = supabaseServer()
   const { data: event, error } = await sb.from('events').select('*').eq('id', id).single()
