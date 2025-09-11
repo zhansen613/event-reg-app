@@ -2,6 +2,9 @@ import { supabaseServer } from '@/lib/supabase'
 import Link from 'next/link'
 import { format } from 'date-fns'
 
+export const dynamic = 'force-dynamic'
+
+
 async function getEvents() {
   const sb = supabaseServer()
   const { data, error } = await sb.from('events').select('*').order('start_at', { ascending: true })
