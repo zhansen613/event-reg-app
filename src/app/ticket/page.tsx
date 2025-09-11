@@ -1,8 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function TicketPage() {
+export const dynamic = 'force-dynamic' // avoid prerender errors
+
+function TicketInner() {
   const search = useSearchParams()
   const code = search.get('code')
   const [qr, setQr] = useState<string>('')
@@ -11,7 +13,7 @@ export default function TicketPage() {
     (async () => {
       if (!code) return
       const url = `${window.location.origin}/checkin?code=${code}`
-      // @ts-ignore - qrcode types provided via local stub or devDependency
+      // @ts-ignore - local stub or dev types are fine
       const mod = await import('qrcode')
       const QRCode: any = (mod as any).default || mod
       const dataUrl = await QRCode.toDataURL(url)
@@ -35,5 +37,13 @@ export default function TicketPage() {
       {qr ? <img src={qr} alt="QR code" className="mx-auto border rounded-xl" /> : <p>Generating QR…</p>}
       <p className="text-xs text-gray-500 mt-4 break-all">Code: {code}</p>
     </main>
+  )
+}
+
+export default function TicketPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto max-w-md p-6">Loading…</main>}>
+      <TicketInner />
+    </Suspense>
   )
 }
