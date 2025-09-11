@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic'  // <-- always fetch fresh data
+export const dynamic = 'force-dynamic'
 
 import { unstable_noStore as noStore } from 'next/cache'
 import { supabaseServer } from '@/lib/supabase'
@@ -6,17 +6,23 @@ import RegisterForm from './register-form'
 import { format } from 'date-fns'
 
 async function getEvent(id: string) {
-  noStore() // <-- opt out of Next.js request caching for this render
+  noStore()
   const sb = supabaseServer()
   const { data: event, error } = await sb.from('events').select('*').eq('id', id).single()
   if (error) throw error
 
   const { data: counts } = await sb.from('event_counts').select('*').eq('id', id).single()
-  return { event, counts }
+  const { data: questions } = await sb
+    .from('event_questions')
+    .select('*')
+    .eq('event_id', id)
+    .order('position', { ascending: true })
+
+  return { event, counts, questions: questions || [] }
 }
 
 export default async function EventPage({ params }: { params: { id: string } }) {
-  const { event, counts } = await getEvent(params.id)
+  const { event, counts, questions } = await getEvent(params.id)
   const seatsLeft = Math.max((counts?.capacity ?? 0) - (counts?.confirmed_count ?? 0), 0)
   const isFull = seatsLeft <= 0
 
@@ -29,7 +35,7 @@ export default async function EventPage({ params }: { params: { id: string } }) 
       <p className="mt-3 text-sm">{event.description}</p>
 
       <div className="mt-6">
-        <RegisterForm eventId={event.id} isFull={isFull} seatsLeft={seatsLeft} />
+        <RegisterForm eventId={event.id} isFull={isFull} seatsLeft={seatsLeft} questions={questions} />
       </div>
     </main>
   )
