@@ -1,8 +1,8 @@
+export const dynamic = 'force-dynamic'
+
 import { supabaseServer } from '@/lib/supabase'
 import Link from 'next/link'
 import { format } from 'date-fns'
-
-export const dynamic = 'force-dynamic'
 
 
 async function getEvents() {
