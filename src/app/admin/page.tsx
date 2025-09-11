@@ -10,7 +10,7 @@ function Modal({ open, onClose, children, title }: any) {
   if (!open) return null
   return (
     <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4">
-      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-2xl p-4">
+      <div className="bg-white border border-gray-200 rounded-2xl w-full max-w-4xl p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
@@ -108,12 +108,21 @@ export default function Admin() {
     })
     const json = await res.json()
     if (!res.ok) { alert(json.error || 'Promote failed'); return }
-    if (activeEvent) viewRegs(activeEvent)
+    if (activeEvent) viewRegs(activeEvent) // reload regs
   }
 
+  // Updated CSV to include attended + checkin_at
   const exportCSV = () => {
-    const rows = [['name','email','dept','status','created_at']]
-    regs.forEach((r:any) => rows.push([r.name, r.email, r.dept || '', r.status, r.created_at]))
+    const rows = [['name','email','dept','status','attended','checkin_at','created_at']]
+    regs.forEach((r:any) => rows.push([
+      r.name,
+      r.email,
+      r.dept || '',
+      r.status,
+      r.attended ? 'yes' : 'no',
+      r.checkin_at || '',
+      r.created_at
+    ]))
     const csv = rows.map(r => r.map((c:any)=>`"${String(c).replaceAll('"','""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -155,7 +164,9 @@ export default function Admin() {
         {events.map((e:any) => (
           <div key={e.id} className="rounded-2xl border p-4 bg-white">
             <h3 className="text-lg font-semibold">{e.title}</h3>
-            <p className="text-sm text-gray-600">{format(new Date(e.start_at), 'PPP p')} · {e.location || 'TBA'}</p>
+            <p className="text-sm text-gray-600">
+              {format(new Date(e.start_at), 'PPP p')} · {e.location || 'TBA'}
+            </p>
             <p className="text-sm mt-2 line-clamp-3">{e.description}</p>
             <div className="mt-3 flex items-center gap-2">
               <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
@@ -166,16 +177,17 @@ export default function Admin() {
         ))}
       </div>
 
-      <Modal open={formOpen} onClose={()=>setFormOpen(false)} title={editing ? 'Edit event' : 'New event'}>
-        <EventForm initial={editing} onSave={saveEvent} />
-      </Modal>
-
+      {/* Registrations Modal */}
       <Modal open={regOpen} onClose={()=>setRegOpen(false)} title={`Registrations — ${activeEvent?.title || ''}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm text-gray-600">{regs.length} total</p>
-          <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg border text-xs">Export CSV</button>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>activeEvent && viewRegs(activeEvent)} className="px-3 py-1.5 rounded-lg border text-xs">Refresh</button>
+            <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg border text-xs">Export CSV</button>
+          </div>
         </div>
-        <div className="max-h-80 overflow-auto border rounded-xl">
+
+        <div className="max-h-96 overflow-auto border rounded-xl">
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -183,7 +195,9 @@ export default function Admin() {
                 <th className="text-left p-2">Email</th>
                 <th className="text-left p-2">Dept</th>
                 <th className="text-left p-2">Status</th>
-                <th className="text-left p-2">When</th>
+                <th className="text-left p-2">Attended</th>
+                <th className="text-left p-2">Check-in</th>
+                <th className="text-left p-2">When Registered</th>
                 <th className="text-left p-2"></th>
               </tr>
             </thead>
@@ -194,6 +208,8 @@ export default function Admin() {
                   <td className="p-2">{r.email}</td>
                   <td className="p-2">{r.dept || ''}</td>
                   <td className="p-2">{r.status}</td>
+                  <td className="p-2">{r.attended ? '✓' : ''}</td>
+                  <td className="p-2">{r.checkin_at ? format(new Date(r.checkin_at), 'PP p') : ''}</td>
                   <td className="p-2">{format(new Date(r.created_at), 'PP p')}</td>
                   <td className="p-2 text-right">
                     {r.status === 'waitlisted' && (
@@ -205,6 +221,11 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
+      </Modal>
+
+      {/* Event form modal */}
+      <Modal open={formOpen} onClose={()=>setFormOpen(false)} title={editing ? 'Edit event' : 'New event'}>
+        <EventForm initial={editing} onSave={saveEvent} />
       </Modal>
     </main>
   )
