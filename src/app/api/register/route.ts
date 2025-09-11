@@ -31,56 +31,60 @@ export async function POST(req: Request) {
     if (countsErr) throw countsErr
 
     const confirmed = counts?.confirmed_count ?? 0
-    const capacity = counts?.capacity ?? 0
-    const isFull = confirmed >= capacity
+    const capacity  = counts?.capacity ?? 0
+    const isFull    = confirmed >= capacity
 
-    // 3) Insert registration with status (and get the row back)
-const { data: regRow, error: insertErr } = await sb
-  .from('registrations')
-  .insert({
-    event_id: eventId,
-    name,
-    email,
-    dept,
-    status: isFull ? 'waitlisted' : 'confirmed',
-  })
-  .select('id, checkin_code')
-  .single()
+    // 3) Insert registration and get checkin_code for tickets
+    const { data: regRow, error: insertErr } = await sb
+      .from('registrations')
+      .insert({
+        event_id: eventId,
+        name,
+        email,
+        dept,
+        status: isFull ? 'waitlisted' : 'confirmed',
+      })
+      .select('id, checkin_code')
+      .single()
 
-if (insertErr) {
-  if ((insertErr as any).code === '23505') {
-    return NextResponse.json({ error: 'You are already registered for this event.' }, { status: 409 })
-  }
-  throw insertErr
-}
-
-// Build ticket URL for QR (works on prod + preview)
-const baseUrl =
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  `https://${req.headers.get('host')}`
-
-const ticketUrl = `${baseUrl}/ticket?code=${regRow.checkin_code}`
-
+    if (insertErr) {
+      if ((insertErr as any).code === '23505') {
+        return NextResponse.json({ error: 'You are already registered for this event.' }, { status: 409 })
+      }
+      throw insertErr
     }
 
-    // 4) Build Google Calendar link (1h default if no end time)
+    // 4) Build links: Google Calendar + Ticket
     const start = new Date(event.start_at)
-    const end = event.end_at ? new Date(event.end_at) : new Date(start.getTime() + 60 * 60 * 1000)
+    const end   = event.end_at ? new Date(event.end_at) : new Date(start.getTime() + 60 * 60 * 1000)
+
     const gcal = googleCalendarUrl({
-      title: event.title,
+      title:   event.title,
       details: event.description || '',
       location: event.location || '',
       start,
       end,
     })
 
-    // 5) Send confirmation / waitlist email (best-effort)
-    const statusText = isFull ? 'Waitlist' : 'Registration Confirmed'
-    const subject = `${statusText}: ${event.title}`
-    const friendlyDate = start.toLocaleString(undefined, {
-      dateStyle: 'full',
-      timeStyle: 'short',
-    })
+    const baseUrl  = process.env.NEXT_PUBLIC_BASE_URL || `https://${req.headers.get('host')}`
+    const ticketUrl = `${baseUrl}/ticket?code=${regRow.checkin_code}`
+
+    // 5) Build and send email
+    const statusText  = isFull ? 'Waitlist' : 'Registration Confirmed'
+    const subject     = `${statusText}: ${event.title}`
+    const friendlyDate = start.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
+
+    const calendarBtn = !isFull ? `
+      <a href="${gcal}" target="_blank" rel="noopener"
+         style="display:inline-block;padding:10px 14px;border-radius:8px;border:1px solid #111;text-decoration:none;color:#111;margin-right:8px">
+         Add to Google Calendar
+      </a>` : ''
+
+    const ticketLink = !isFull ? `
+      <p style="margin:12px 0 0 0;">
+        <a href="${ticketUrl}" target="_blank" rel="noopener">View your ticket / QR code</a>
+      </p>` : `
+      <p style="margin:12px 0 0 0;">You are on the waitlist. You'll get a note if a seat opens.</p>`
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height:1.5; color:#111;">
@@ -89,19 +93,13 @@ const ticketUrl = `${baseUrl}/ticket?code=${regRow.checkin_code}`
         <p style="margin:0 0 8px 0;">When: ${friendlyDate}</p>
         ${event.location ? `<p style="margin:0 0 8px 0;">Location: ${event.location}</p>` : ''}
         ${event.description ? `<p style="margin:0 0 12px 0;">${event.description}</p>` : ''}
-        ${
-          !isFull
-            ? `<a href="${gcal}" target="_blank" rel="noopener"
-                 style="display:inline-block;padding:10px 14px;border-radius:8px;border:1px solid #111;text-decoration:none;color:#111">
-                 Add to Google Calendar
-               </a>`
-            : `<p style="margin:12px 0 0 0;">You are on the waitlist. You'll get a note if a seat opens.</p>`
-        }
+        ${calendarBtn}
+        ${ticketLink}
         <p style="margin:16px 0 0 0; font-size:12px; color:#666;">If you didn’t request this, please ignore this email.</p>
       </div>
     `.trim()
 
-    // Fire and forget; don’t block the response if email fails
+    // best-effort send (don’t block the response)
     sendMail(email, subject, html).catch((e) => console.error('Email send failed', e))
 
     return NextResponse.json({ message: isFull ? 'You are on the waitlist.' : 'Registration confirmed!' })
