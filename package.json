@@ -16,7 +16,9 @@
     "react-dom": "^18.3.1",
     "qrcode": "^1.5.3",
     "resend": "^3.2.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "react-markdown": "^9.0.3",
+"remark-gfm": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
