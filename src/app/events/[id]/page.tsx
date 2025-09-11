@@ -4,6 +4,8 @@ import { unstable_noStore as noStore } from 'next/cache'
 import { supabaseServer } from '@/lib/supabase'
 import RegisterForm from './register-form'
 import { format } from 'date-fns'
+import Markdown from '@/components/Markdown'
+
 
 async function getEvent(id: string) {
   noStore()
@@ -50,10 +52,10 @@ export default async function EventPage({ params }: { params: { id: string } }) 
 
       {/* Admin blurb (above the registration form) */}
       {event.registration_blurb && (
-        <div className="mt-4 rounded-2xl border bg-white p-3">
-          <p className="text-sm whitespace-pre-line">{event.registration_blurb}</p>
-        </div>
-      )}
+  <div className="mt-4 rounded-2xl border bg-white p-4">
+    <Markdown>{event.registration_blurb}</Markdown>
+  </div>
+)}
 
       {/* Registration form */}
       <div className="mt-6">
