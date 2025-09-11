@@ -5,7 +5,7 @@ import { sendMail } from '@/lib/email'
 
 export async function POST(req: Request) {
   try {
-    const { eventId, name, email, dept } = await req.json()
+    const { eventId, name, email, dept, answers } = await req.json()
     if (!eventId || !name || !email) {
       return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
     }
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
         email,
         dept,
         status: isFull ? 'waitlisted' : 'confirmed',
+answers: answers || {},
       })
       .select('id, checkin_code')
       .single()
