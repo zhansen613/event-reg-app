@@ -19,6 +19,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     end_at: body.end_at || null,
     capacity: body.capacity,
     image_url: body.image_url || null,
+    registration_blurb: body.registration_blurb || null,
   }).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
