@@ -21,19 +21,18 @@ export async function POST(req: Request) {
   const form = await req.formData()
   const kind = String(form.get('kind') || '') // 'event' | 'hero'
   const file = form.get('file')
-
   if (!file || typeof file === 'string') {
     return NextResponse.json({ error: 'Missing file' }, { status: 400 })
   }
 
-  // Basic validations
-  const allowed = ['image/jpeg','image/png','image/webp','image/gif']
   const f = file as File
+  const allowed = ['image/jpeg','image/png','image/webp','image/gif']
   if (!allowed.includes(f.type)) {
     return NextResponse.json({ error: 'Only JPG, PNG, WEBP, GIF allowed' }, { status: 400 })
   }
-  const bytes = Buffer.from(await f.arrayBuffer())
-  if (bytes.length > 4 * 1024 * 1024) { // ~4MB
+
+  const ab = await f.arrayBuffer()
+  if (ab.byteLength > 4 * 1024 * 1024) {
     return NextResponse.json({ error: 'Max 4MB' }, { status: 400 })
   }
 
@@ -44,7 +43,7 @@ export async function POST(req: Request) {
     ? `hero/${randomUUID()}.${ext}`
     : `events/${randomUUID()}.${ext}`
 
-  const { error } = await sb.storage.from(bucket).upload(key, bytes, {
+  const { error } = await sb.storage.from(bucket).upload(key, ab, {
     contentType: f.type,
     upsert: false,
     cacheControl: '3600',
