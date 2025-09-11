@@ -77,10 +77,7 @@ export default function Admin() {
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-    if (!res.ok) {
-      alert('Save failed')
-      return
-    }
+    if (!res.ok) { alert('Save failed'); return }
     setFormOpen(false)
     await refresh()
   }
@@ -111,27 +108,62 @@ export default function Admin() {
     if (activeEvent) viewRegs(activeEvent) // reload regs
   }
 
-  // Updated CSV to include attended + checkin_at
-  const exportCSV = () => {
-    const rows = [['name','email','dept','status','attended','checkin_at','created_at','answers']]
-regs.forEach((r:any) => rows.push([
-  r.name,
-  r.email,
-  r.dept || '',
-  r.status,
-  r.attended ? 'yes' : 'no',
-  r.checkin_at || '',
-  r.created_at,
-  JSON.stringify(r.answers || {})
-]))
-    const csv = rows.map(r => r.map((c:any)=>`"${String(c).replaceAll('"','""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `registrations-${activeEvent?.title || 'event'}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  // Dynamic CSV: adds a column per custom question (by label), fills values from registration.answers
+  const exportCSV = async () => {
+    if (!activeEvent) {
+      alert('Open Registrations for an event first')
+      return
+    }
+
+    try {
+      // 1) Load questions for this event (so we can build columns)
+      const qRes = await fetch(`/api/admin/questions?eventId=${activeEvent.id}`, { headers })
+      const qJson = await qRes.json()
+      const questions: Array<{ id: string; label: string }> = qJson.questions || []
+
+      // 2) Base headers + question headers
+      const baseHeaders = ['name','email','dept','status','attended','checkin_at','created_at']
+      const questionHeaders = questions.map(q => q.label)
+      const rows: string[][] = [ [...baseHeaders, ...questionHeaders] ]
+
+      // 3) Each registration row
+      for (const r of regs as any[]) {
+        const base = [
+          r.name,
+          r.email,
+          r.dept || '',
+          r.status,
+          r.attended ? 'yes' : 'no',
+          r.checkin_at || '',
+          r.created_at
+        ]
+
+        const ans = (r.answers || {}) as Record<string, unknown>
+        const qValues = questions.map((q) => {
+          const v = (ans as any)[q.id]
+          if (v === undefined || v === null) return ''
+          if (Array.isArray(v)) return (v as any[]).join('; ')
+          if (typeof v === 'boolean') return v ? 'yes' : 'no'
+          return String(v)
+        })
+
+        rows.push([...base, ...qValues])
+      }
+
+      // 4) CSV encode and download
+      const encode = (s: unknown) => `"${String(s).replaceAll('"','""')}"`
+      const csv = rows.map(r => r.map(encode).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `registrations-${activeEvent?.title || 'event'}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      console.error(e)
+      alert(e.message || 'Export failed')
+    }
   }
 
   if (!secretOk) {
@@ -170,11 +202,11 @@ regs.forEach((r:any) => rows.push([
             </p>
             <p className="text-sm mt-2 line-clamp-3">{e.description}</p>
             <div className="mt-3 flex items-center gap-2">
-  <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
-  <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
-  <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
-  <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
-</div>
+              <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
+              <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
+              <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
+              <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
+            </div>
           </div>
         ))}
       </div>
@@ -220,6 +252,9 @@ regs.forEach((r:any) => rows.push([
                   </td>
                 </tr>
               ))}
+              {regs.length === 0 && (
+                <tr><td className="p-2 text-gray-600 text-sm" colSpan={8}>No registrations yet.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
