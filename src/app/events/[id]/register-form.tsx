@@ -1,7 +1,13 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-export default function RegisterForm({ eventId, isFull, seatsLeft }: { eventId: string; isFull: boolean; seatsLeft: number }) {
+export default function RegisterForm({
+  eventId,
+  isFull,
+  seatsLeft,
+}: { eventId: string; isFull: boolean; seatsLeft: number }) {
+  const router = useRouter()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [dept, setDept] = useState('')
@@ -11,13 +17,18 @@ export default function RegisterForm({ eventId, isFull, seatsLeft }: { eventId: 
   const submit = async () => {
     setLoading(true)
     setStatus(null)
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      body: JSON.stringify({ eventId, name, email, dept })
-    })
-    const json = await res.json()
-    setLoading(false)
-    setStatus(json.message || json.error)
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({ eventId, name, email, dept }),
+      })
+      const json = await res.json()
+      setStatus(json.message || json.error)
+      // pull fresh counts & UI from the server
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
