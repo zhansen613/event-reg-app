@@ -20,6 +20,7 @@ function SiteInner() {
   }, [])
 
   const headers = useMemo(() => ({ 'x-admin-secret': secret, 'Content-Type': 'application/json' }), [secret])
+  const proxied = (url: string) => `/img?u=${encodeURIComponent(url)}`
 
   const load = async () => {
     if (!secret) return
@@ -136,7 +137,7 @@ function SiteInner() {
       {form.hero_image_url && (
         <div className="rounded-2xl border p-4 bg-white mt-4">
           <p className="text-sm text-gray-600 mb-2">Preview</p>
-          <img src={form.hero_image_url} alt="" className="w-full h-48 object-cover rounded-xl border" />
+          <img src={proxied(form.hero_image_url)} alt="" className="w-full h-48 object-cover rounded-xl border" />
           <h2 className="mt-3 text-xl font-semibold">{form.landing_title}</h2>
           {form.landing_body && <p className="mt-1 text-sm">{form.landing_body}</p>}
         </div>
