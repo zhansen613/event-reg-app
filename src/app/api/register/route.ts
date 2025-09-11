@@ -34,19 +34,33 @@ export async function POST(req: Request) {
     const capacity = counts?.capacity ?? 0
     const isFull = confirmed >= capacity
 
-    // 3) Insert registration with status
-    const { error: insertErr } = await sb.from('registrations').insert({
-      event_id: eventId,
-      name,
-      email,
-      dept,
-      status: isFull ? 'waitlisted' : 'confirmed',
-    })
-    if (insertErr) {
-      if ((insertErr as any).code === '23505') {
-        return NextResponse.json({ error: 'You are already registered for this event.' }, { status: 409 })
-      }
-      throw insertErr
+    // 3) Insert registration with status (and get the row back)
+const { data: regRow, error: insertErr } = await sb
+  .from('registrations')
+  .insert({
+    event_id: eventId,
+    name,
+    email,
+    dept,
+    status: isFull ? 'waitlisted' : 'confirmed',
+  })
+  .select('id, checkin_code')
+  .single()
+
+if (insertErr) {
+  if ((insertErr as any).code === '23505') {
+    return NextResponse.json({ error: 'You are already registered for this event.' }, { status: 409 })
+  }
+  throw insertErr
+}
+
+// Build ticket URL for QR (works on prod + preview)
+const baseUrl =
+  process.env.NEXT_PUBLIC_BASE_URL ||
+  `https://${req.headers.get('host')}`
+
+const ticketUrl = `${baseUrl}/ticket?code=${regRow.checkin_code}`
+
     }
 
     // 4) Build Google Calendar link (1h default if no end time)
