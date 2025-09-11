@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import QRCode from 'qrcode'
 
 export default function TicketPage() {
   const search = useSearchParams()
@@ -9,13 +8,15 @@ export default function TicketPage() {
   const [qr, setQr] = useState<string>('')
 
   useEffect(() => {
-    const gen = async () => {
+    (async () => {
       if (!code) return
       const url = `${window.location.origin}/checkin?code=${code}`
+      // @ts-ignore - qrcode types provided via local stub or devDependency
+      const mod = await import('qrcode')
+      const QRCode: any = (mod as any).default || mod
       const dataUrl = await QRCode.toDataURL(url)
       setQr(dataUrl)
-    }
-    gen()
+    })()
   }, [code])
 
   if (!code) {
