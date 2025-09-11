@@ -1,8 +1,10 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function CheckinPage() {
+export const dynamic = 'force-dynamic' // avoid prerender errors
+
+function CheckinInner() {
   const search = useSearchParams()
   const code = search.get('code') || ''
   const [secret, setSecret] = useState<string>('')
@@ -13,7 +15,10 @@ export default function CheckinPage() {
     if (s) setSecret(s)
   }, [])
 
-  const headers = useMemo(() => ({ 'x-admin-secret': secret, 'Content-Type': 'application/json' }), [secret])
+  const headers = useMemo(
+    () => ({ 'x-admin-secret': secret, 'Content-Type': 'application/json' }),
+    [secret]
+  )
 
   const handleCheckin = async () => {
     setStatus('Checking in…')
@@ -59,5 +64,13 @@ export default function CheckinPage() {
 
       {status && <p className="text-sm mt-3">{status}</p>}
     </main>
+  )
+}
+
+export default function CheckinPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto max-w-md p-6">Loading…</main>}>
+      <CheckinInner />
+    </Suspense>
   )
 }
