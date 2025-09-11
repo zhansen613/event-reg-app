@@ -113,16 +113,17 @@ export default function Admin() {
 
   // Updated CSV to include attended + checkin_at
   const exportCSV = () => {
-    const rows = [['name','email','dept','status','attended','checkin_at','created_at']]
-    regs.forEach((r:any) => rows.push([
-      r.name,
-      r.email,
-      r.dept || '',
-      r.status,
-      r.attended ? 'yes' : 'no',
-      r.checkin_at || '',
-      r.created_at
-    ]))
+    const rows = [['name','email','dept','status','attended','checkin_at','created_at','answers']]
+regs.forEach((r:any) => rows.push([
+  r.name,
+  r.email,
+  r.dept || '',
+  r.status,
+  r.attended ? 'yes' : 'no',
+  r.checkin_at || '',
+  r.created_at,
+  JSON.stringify(r.answers || {})
+]))
     const csv = rows.map(r => r.map((c:any)=>`"${String(c).replaceAll('"','""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
