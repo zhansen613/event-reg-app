@@ -100,25 +100,27 @@ export default function Admin() {
     })
     const json = await res.json()
     if (!res.ok) { alert(json.error || 'Promote failed'); return }
-    if (activeEvent) viewRegs(activeEvent)
+    if (activeEvent) viewRegs(activeEvent) // reload regs
   }
 
-  // CSV (left as-is; you already replaced earlier with the dynamic version)
-  const exportCSV = async () => {
-    alert('Open Registrations and use Export CSV from there (unchanged).')
-  }
+  // NOTE: Your CSV export & Registrations modal code should already exist in your version.
+  // (Omitted here for brevity; keep your existing one.)
 
   if (!secretOk) {
     return (
       <main className="max-w-sm mx-auto p-6">
         <h1 className="text-2xl font-semibold mb-3">Admin login</h1>
         <Text>Enter the admin secret you set in Vercel as <code>ADMIN_SECRET</code>.</Text>
-        <input type="password" value={secret} onChange={(e)=>setSecret(e.target.value)}
-               className="mt-3 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm"
-               placeholder="Paste admin secret" />
-        <div className="mt-3 flex items-center gap-2">
-          <button onClick={checkSecret} disabled={loading} className="px-4 py-2 rounded-xl border text-sm">Continue</button>
-        </div>
+        <input
+          type="password"
+          value={secret}
+          onChange={(e)=>setSecret(e.target.value)}
+          className="mt-3 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm"
+          placeholder="Paste admin secret"
+        />
+        <button onClick={checkSecret} disabled={loading} className="mt-3 px-4 py-2 rounded-xl border text-sm">
+          Continue
+        </button>
         {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
       </main>
     )
@@ -137,14 +139,15 @@ export default function Admin() {
       <div className="grid md:grid-cols-2 gap-4">
         {events.map((e:any) => (
           <div key={e.id} className="rounded-2xl border p-4 bg-white">
+            {/* Preview image if set */}
+            {e.image_url && (
+              <img src={e.image_url} alt="" className="w-full h-40 object-cover rounded-xl border mb-3" />
+            )}
             <h3 className="text-lg font-semibold">{e.title}</h3>
             <p className="text-sm text-gray-600">
               {format(new Date(e.start_at), 'PPP p')} · {e.location || 'TBA'}
             </p>
             <p className="text-sm mt-2 line-clamp-3">{e.description}</p>
-            {e.image_url && (
-              <img src={e.image_url} alt="" className="mt-3 w-full h-36 object-cover rounded-xl border" />
-            )}
             <div className="mt-3 flex items-center gap-2">
               <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
               <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
@@ -157,20 +160,20 @@ export default function Admin() {
       </div>
 
       <Modal open={formOpen} onClose={()=>setFormOpen(false)} title={editing ? 'Edit event' : 'New event'}>
-        <EventForm initial={editing} onSave={saveEvent} />
+        <EventForm initial={editing} onSave={saveEvent} secret={secret} />
       </Modal>
 
-      {/* Registrations modal kept from your previous version */}
-      {/* ... */}
+      {/* Keep your existing Registrations modal here */}
     </main>
   )
 }
 
-function EventForm({ initial, onSave }: any) {
+function EventForm({ initial, onSave, secret }: any) {
   const [title, setTitle] = useState(initial?.title || '')
   const [description, setDescription] = useState(initial?.description || '')
   const [location, setLocation] = useState(initial?.location || '')
   const [imageUrl, setImageUrl] = useState(initial?.image_url || '')
+  const [uploading, setUploading] = useState(false)
   const [startAt, setStartAt] = useState<string>(() => {
     if (!initial?.start_at) return ''
     const d = new Date(initial.start_at)
@@ -191,6 +194,27 @@ function EventForm({ initial, onSave }: any) {
     await onSave(payload)
   }
 
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('kind', 'event')
+      fd.append('file', file)
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: { 'x-admin-secret': secret },
+        body: fd
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Upload failed')
+      setImageUrl(json.url)
+    } catch (e:any) {
+      alert(e.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   return (
     <div>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -202,14 +226,34 @@ function EventForm({ initial, onSave }: any) {
           <label className="text-sm">Location</label>
           <input className="border rounded-xl px-3 py-2 text-sm" value={location} onChange={(e)=>setLocation(e.target.value)} />
         </div>
+
         <div className="flex flex-col gap-1 sm:col-span-2">
           <label className="text-sm">Description</label>
           <textarea className="border rounded-xl px-3 py-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
         </div>
+
         <div className="flex flex-col gap-1 sm:col-span-2">
-          <label className="text-sm">Image URL (optional)</label>
-          <input className="border rounded-xl px-3 py-2 text-sm" value={imageUrl} onChange={(e)=>setImageUrl(e.target.value)} placeholder="https://..." />
+          <label className="text-sm">Image</label>
+          <div className="flex items-center gap-2">
+            <input
+              className="border rounded-xl px-3 py-2 text-sm flex-1"
+              placeholder="https://..."
+              value={imageUrl}
+              onChange={(e)=>setImageUrl(e.target.value)}
+            />
+            <label className="px-3 py-2 rounded-xl border text-sm cursor-pointer">
+              {uploading ? 'Uploading…' : 'Upload'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e)=>{ const f=e.target.files?.[0]; if (f) handleUpload(f) }}
+              />
+            </label>
+          </div>
+          {imageUrl && <img src={imageUrl} alt="" className="mt-2 w-full h-36 object-cover rounded-xl border" />}
         </div>
+
         <div className="flex flex-col gap-1">
           <label className="text-sm">Start (local time)</label>
           <input type="datetime-local" className="border rounded-xl px-3 py-2 text-sm" value={startAt} onChange={(e)=>setStartAt(e.target.value)} />
@@ -219,6 +263,7 @@ function EventForm({ initial, onSave }: any) {
           <input type="number" min={1} className="border rounded-xl px-3 py-2 text-sm" value={capacity} onChange={(e)=>setCapacity(e.target.value)} />
         </div>
       </div>
+
       <div className="mt-4 flex items-center justify-end gap-2">
         <button onClick={submit} className="px-4 py-2 rounded-xl border text-sm">Save</button>
       </div>
