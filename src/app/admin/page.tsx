@@ -33,6 +33,8 @@ export default function Admin() {
   const [regOpen, setRegOpen] = useState(false)
   const [activeEvent, setActiveEvent] = useState<any | null>(null)
   const [regs, setRegs] = useState<any[]>([])
+  const [addOpen, setAddOpen] = useState(false)
+  const [autoPromoteOnCancel, setAutoPromoteOnCancel] = useState(true)
 
   useEffect(() => {
     const s = localStorage.getItem('admin_secret')
@@ -104,7 +106,39 @@ export default function Admin() {
     if (activeEvent) viewRegs(activeEvent)
   }
 
-  // Dynamic CSV: includes one column per custom question label
+  // Add registrant (manual)
+  const addRegistrant = async (payload: {
+    name: string
+    email: string
+    dept?: string
+    desiredStatus?: 'auto'|'confirmed'|'waitlisted'
+    forceConfirm?: boolean
+  }) => {
+    if (!activeEvent) return
+    const res = await fetch('/api/admin/registrations', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: activeEvent.id, ...payload })
+    })
+    const json = await res.json()
+    if (!res.ok) { alert(json.error || 'Add failed'); return }
+    setAddOpen(false)
+    await viewRegs(activeEvent)
+  }
+
+  // Cancel (soft-delete) a registrant
+  const cancelRegistrant = async (regId: string) => {
+    const autopromote = autoPromoteOnCancel ? '1' : '0'
+    const res = await fetch(`/api/admin/registrations/${regId}?autopromote=${autopromote}`, {
+      method: 'DELETE',
+      headers
+    })
+    const json = await res.json()
+    if (!res.ok) { alert(json.error || 'Cancel failed'); return }
+    if (activeEvent) viewRegs(activeEvent)
+  }
+
+  // Dynamic CSV (already in your build)
   const exportCSV = async () => {
     if (!activeEvent) {
       alert('Open Registrations for an event first')
@@ -211,8 +245,20 @@ export default function Admin() {
       {/* Registrations Modal */}
       <Modal open={regOpen} onClose={()=>setRegOpen(false)} title={`Registrations — ${activeEvent?.title || ''}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-gray-600">{regs.length} total</p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-gray-600">{regs.length} total</p>
+            <label className="text-xs flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="align-middle"
+                checked={autoPromoteOnCancel}
+                onChange={(e)=>setAutoPromoteOnCancel(e.target.checked)}
+              />
+              Auto-promote next waitlisted on cancel
+            </label>
+          </div>
           <div className="flex items-center gap-2">
+            <button onClick={()=>setAddOpen(true)} className="px-3 py-1.5 rounded-lg border text-xs">+ Add registrant</button>
             <button onClick={()=>activeEvent && viewRegs(activeEvent)} className="px-3 py-1.5 rounded-lg border text-xs">Refresh</button>
             <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg border text-xs">Export CSV</button>
           </div>
@@ -244,7 +290,10 @@ export default function Admin() {
                   <td className="p-2">{format(new Date(r.created_at), 'PP p')}</td>
                   <td className="p-2 text-right">
                     {r.status === 'waitlisted' && (
-                      <button onClick={()=>promote(r.id)} className="px-2 py-1 rounded-lg border text-xs">Promote</button>
+                      <button onClick={()=>promote(r.id)} className="px-2 py-1 rounded-lg border text-xs mr-2">Promote</button>
+                    )}
+                    {r.status !== 'cancelled' && (
+                      <button onClick={()=>cancelRegistrant(r.id)} className="px-2 py-1 rounded-lg border text-xs">Cancel</button>
                     )}
                   </td>
                 </tr>
@@ -255,6 +304,11 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
+
+        {/* Add registrant modal (nested) */}
+        <Modal open={addOpen} onClose={()=>setAddOpen(false)} title="Add registrant">
+          <AddRegistrantForm onSave={addRegistrant} onCancel={()=>setAddOpen(false)} />
+        </Modal>
       </Modal>
 
       {/* Event form modal */}
@@ -265,6 +319,7 @@ export default function Admin() {
   )
 }
 
+/* ---------------- Event form (unchanged except your previous fields) ---------------- */
 function EventForm({ initial, onSave, secret }: any) {
   const [title, setTitle] = useState(initial?.title || '')
   const [description, setDescription] = useState(initial?.description || '')
@@ -331,9 +386,8 @@ function EventForm({ initial, onSave, secret }: any) {
           <textarea className="border rounded-xl px-3 py-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
         </div>
 
-        {/* NEW: Registration blurb */}
         <div className="flex flex-col gap-1 sm:col-span-2">
-          <label className="text-sm">Registration blurb (shows on event page above the form)</label>
+          <label className="text-sm">Registration blurb (Markdown)</label>
           <textarea
             className="border rounded-xl px-3 py-2 text-sm"
             rows={3}
@@ -377,6 +431,77 @@ function EventForm({ initial, onSave, secret }: any) {
 
       <div className="mt-4 flex items-center justify-end gap-2">
         <button onClick={submit} className="px-4 py-2 rounded-xl border text-sm">Save</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- Add Registrant form ---------------- */
+function AddRegistrantForm({
+  onSave, onCancel
+}: {
+  onSave: (payload: {
+    name: string
+    email: string
+    dept?: string
+    desiredStatus?: 'auto'|'confirmed'|'waitlisted'
+    forceConfirm?: boolean
+  }) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [dept, setDept] = useState('')
+  const [desiredStatus, setDesiredStatus] = useState<'auto'|'confirmed'|'waitlisted'>('auto')
+  const [forceConfirm, setForceConfirm] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!name || !email) { alert('Name and email are required'); return }
+    setSaving(true)
+    try {
+      await onSave({ name, email, dept: dept || undefined, desiredStatus, forceConfirm })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm">Full name</label>
+          <input className="border rounded-xl px-3 py-2 text-sm w-full" value={name} onChange={(e)=>setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm">Email</label>
+          <input className="border rounded-xl px-3 py-2 text-sm w-full" value={email} onChange={(e)=>setEmail(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="text-sm">Department (optional)</label>
+          <input className="border rounded-xl px-3 py-2 text-sm w-full" value={dept} onChange={(e)=>setDept(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm">Status</label>
+          <select
+            className="border rounded-xl px-3 py-2 text-sm w-full"
+            value={desiredStatus}
+            onChange={(e)=>setDesiredStatus(e.target.value as any)}
+          >
+            <option value="auto">Auto (respect capacity)</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="waitlisted">Waitlisted</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" className="align-middle" checked={forceConfirm} onChange={(e)=>setForceConfirm(e.target.checked)} />
+          <span className="text-sm">Force confirm (ignore capacity)</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <button onClick={onCancel} className="px-4 py-2 rounded-xl border text-sm">Cancel</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-xl border text-sm">Add</button>
       </div>
     </div>
   )
