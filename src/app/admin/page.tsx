@@ -36,6 +36,9 @@ export default function Admin() {
   const [addOpen, setAddOpen] = useState(false)
   const [autoPromoteOnCancel, setAutoPromoteOnCancel] = useState(true)
 
+  const [copyOpen, setCopyOpen] = useState(false)
+  const [copyFrom, setCopyFrom] = useState<any | null>(null)
+
   useEffect(() => {
     const s = localStorage.getItem('admin_secret')
     if (s) setSecret(s)
@@ -138,7 +141,32 @@ export default function Admin() {
     if (activeEvent) viewRegs(activeEvent)
   }
 
-  // Dynamic CSV (already in your build)
+  // Copy Event
+  const openCopy = (ev: any) => { setCopyFrom(ev); setCopyOpen(true) }
+  const doCopy = async (payload: {
+    title?: string
+    start_at?: string|null
+    location?: string|null
+    capacity?: number|null
+    copy_questions?: boolean
+    copy_sections?: boolean
+    copy_image?: boolean
+    copy_blurb?: boolean
+  }) => {
+    if (!copyFrom) return
+    const res = await fetch(`/api/admin/events/${copyFrom.id}/copy`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const json = await res.json()
+    if (!res.ok) { alert(json.error || 'Copy failed'); return }
+    setCopyOpen(false)
+    await refresh()
+    alert('Event copied! You can now Edit the new event in the list.')
+  }
+
+  // Dynamic CSV (unchanged)
   const exportCSV = async () => {
     if (!activeEvent) {
       alert('Open Registrations for an event first')
@@ -230,8 +258,9 @@ export default function Admin() {
               {format(new Date(e.start_at), 'PPP p')} · {e.location || 'TBA'}
             </p>
             <p className="text-sm mt-2 line-clamp-3">{e.description}</p>
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button onClick={()=>openEdit(e)} className="px-3 py-1.5 rounded-lg border text-xs">Edit</button>
+              <button onClick={()=>openCopy(e)} className="px-3 py-1.5 rounded-lg border text-xs">Copy</button>
               <button onClick={()=>delEvent(e.id)} className="px-3 py-1.5 rounded-lg border text-xs">Delete</button>
               <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
               <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
@@ -305,7 +334,7 @@ export default function Admin() {
           </table>
         </div>
 
-        {/* Add registrant modal (nested) */}
+        {/* Add registrant modal */}
         <Modal open={addOpen} onClose={()=>setAddOpen(false)} title="Add registrant">
           <AddRegistrantForm onSave={addRegistrant} onCancel={()=>setAddOpen(false)} />
         </Modal>
@@ -315,11 +344,22 @@ export default function Admin() {
       <Modal open={formOpen} onClose={()=>setFormOpen(false)} title={editing ? 'Edit event' : 'New event'}>
         <EventForm initial={editing} onSave={saveEvent} secret={secret} />
       </Modal>
+
+      {/* Copy event modal */}
+      <Modal open={copyOpen} onClose={()=>setCopyOpen(false)} title={`Copy event${copyFrom ? ` — ${copyFrom.title}` : ''}`}>
+        {copyFrom && (
+          <CopyEventForm
+            source={copyFrom}
+            onCancel={()=>setCopyOpen(false)}
+            onCopy={doCopy}
+          />
+        )}
+      </Modal>
     </main>
   )
 }
 
-/* ---------------- Event form (unchanged except your previous fields) ---------------- */
+/* ---------------- Event form (unchanged from your latest) ---------------- */
 function EventForm({ initial, onSave, secret }: any) {
   const [title, setTitle] = useState(initial?.title || '')
   const [description, setDescription] = useState(initial?.description || '')
@@ -436,7 +476,7 @@ function EventForm({ initial, onSave, secret }: any) {
   )
 }
 
-/* ---------------- Add Registrant form ---------------- */
+/* ---------------- Add Registrant form (unchanged) ---------------- */
 function AddRegistrantForm({
   onSave, onCancel
 }: {
@@ -501,7 +541,109 @@ function AddRegistrantForm({
 
       <div className="mt-4 flex items-center justify-end gap-2">
         <button onClick={onCancel} className="px-4 py-2 rounded-xl border text-sm">Cancel</button>
-        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-xl border text-sm">Add</button>
+        <button onClick={submit} className="px-4 py-2 rounded-xl border text-sm">Add</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- Copy Event form ---------------- */
+function CopyEventForm({
+  source,
+  onCopy,
+  onCancel
+}: {
+  source: any,
+  onCopy: (payload: {
+    title?: string
+    start_at?: string|null
+    location?: string|null
+    capacity?: number|null
+    copy_questions?: boolean
+    copy_sections?: boolean
+    copy_image?: boolean
+    copy_blurb?: boolean
+  }) => void
+  onCancel: () => void
+}) {
+  const [title, setTitle] = useState(`${source.title} (Copy)`)
+  const [location, setLocation] = useState(source.location || '')
+  const [capacity, setCapacity] = useState<number>(source.capacity || 50)
+
+  const [startAt, setStartAt] = useState<string>(() => {
+    if (!source?.start_at) return ''
+    const d = new Date(source.start_at)
+    const pad = (n:number)=>String(n).padStart(2,'0')
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+
+  const [copyQuestions, setCopyQuestions] = useState(true)
+  const [copySections, setCopySections] = useState(true)
+  const [copyImage, setCopyImage] = useState(true)
+  const [copyBlurb, setCopyBlurb] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    setSaving(true)
+    try {
+      await onCopy({
+        title: title || undefined,
+        start_at: startAt ? new Date(startAt).toISOString() : null,
+        location: location || null,
+        capacity,
+        copy_questions: copyQuestions,
+        copy_sections: copySections,
+        copy_image: copyImage,
+        copy_blurb: copyBlurb,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm">New title</label>
+          <input className="border rounded-xl px-3 py-2 text-sm w-full" value={title} onChange={(e)=>setTitle(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm">Location</label>
+          <input className="border rounded-xl px-3 py-2 text-sm w-full" value={location} onChange={(e)=>setLocation(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm">Start (local time)</label>
+          <input type="datetime-local" className="border rounded-xl px-3 py-2 text-sm w-full" value={startAt} onChange={(e)=>setStartAt(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm">Capacity</label>
+          <input type="number" min={1} className="border rounded-xl px-3 py-2 text-sm w-full" value={capacity} onChange={(e)=>setCapacity(Number(e.target.value))} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid sm:grid-cols-2 gap-3">
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={copyQuestions} onChange={(e)=>setCopyQuestions(e.target.checked)} />
+          Copy questions
+        </label>
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={copySections} onChange={(e)=>setCopySections(e.target.checked)} />
+          Copy sections (Agenda, Parking, Venue, etc.)
+        </label>
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={copyImage} onChange={(e)=>setCopyImage(e.target.checked)} />
+          Copy image
+        </label>
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={copyBlurb} onChange={(e)=>setCopyBlurb(e.target.checked)} />
+          Copy registration blurb
+        </label>
+      </div>
+
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <button onClick={onCancel} className="px-4 py-2 rounded-xl border text-sm">Cancel</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-xl border text-sm">Copy</button>
       </div>
     </div>
   )
