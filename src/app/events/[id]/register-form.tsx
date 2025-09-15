@@ -1,121 +1,296 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 
-type Q = { id: string; label: string; type: string; required: boolean; options?: string[] | null }
+import { useMemo, useState } from 'react'
+
+type Question = {
+  id: string
+  label: string
+  type: string
+  required?: boolean
+  options?: string[] | null
+}
+
+type DoneResult = {
+  ok: boolean
+  status: 'confirmed' | 'waitlisted'
+  registrationId?: string
+  ticketUrl?: string | null
+  error?: string
+}
 
 export default function RegisterForm({
-  eventId, isFull, seatsLeft, questions
-}: { eventId: string; isFull: boolean; seatsLeft: number; questions: Q[] }) {
-  const router = useRouter()
+  eventId,
+  isFull,
+  seatsLeft,
+  questions,
+}: {
+  eventId: string
+  isFull: boolean
+  seatsLeft: number
+  questions: Question[]
+}) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [dept, setDept] = useState('')
-  const [answers, setAnswers] = useState<Record<string, any>>({})
-  const [status, setStatus] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
 
-  const setAns = (id:string, value:any) => setAnswers(a => ({ ...a, [id]: value }))
-
-  const validate = () => {
+  const initialAnswers = useMemo(() => {
+    const base: Record<string, any> = {}
     for (const q of questions) {
-      if (!q.required) continue
-      const v = answers[q.id]
-      if (q.type === 'multiselect') {
-        if (!Array.isArray(v) || v.length === 0) return `${q.label} is required`
-      } else if (q.type === 'checkbox') {
-        if (!v) return `${q.label} is required`
-      } else {
-        if (!v || String(v).trim() === '') return `${q.label} is required`
+      switch ((q.type || '').toLowerCase()) {
+        case 'checkbox':
+        case 'checkboxes':
+        case 'multiselect':
+          base[q.id] = []
+          break
+        case 'boolean':
+          base[q.id] = false
+          break
+        default:
+          base[q.id] = ''
       }
     }
-    return null
+    return base
+  }, [questions])
+
+  const [answers, setAnswers] = useState<Record<string, any>>(initialAnswers)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<DoneResult | null>(null)
+
+  const setAnswer = (qid: string, val: any) => {
+    setAnswers((a) => ({ ...a, [qid]: val }))
   }
 
-  const submit = async () => {
-    setLoading(true)
-    setStatus(null)
-    const err = validate()
-    if (err) { setStatus(err); setLoading(false); return }
+  const toggleMulti = (qid: string, opt: string) => {
+    setAnswers((a) => {
+      const cur: string[] = Array.isArray(a[qid]) ? a[qid] : []
+      const has = cur.includes(opt)
+      return { ...a, [qid]: has ? cur.filter((x) => x !== opt) : [...cur, opt] }
+    })
+  }
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    setDone(null)
     try {
       const res = await fetch('/api/register', {
         method: 'POST',
-        body: JSON.stringify({ eventId, name, email, dept, answers })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          name,
+          email,
+          dept: dept || undefined,
+          answers,
+        }),
       })
-      const json = await res.json()
-      setStatus(json.message || json.error)
-      router.refresh() // refresh seats, etc.
+      const json = (await res.json()) as DoneResult
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Registration failed')
+      }
+      setDone(json)
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong')
     } finally {
-      setLoading(false)
+      setSubmitting(false)
     }
   }
 
-  return (
-    <div className="rounded-2xl border p-4">
-      <p className="text-sm mb-2">
-        {isFull ? 'This event is full. Join the waitlist.' : `${seatsLeft} seats left`}
-      </p>
-      <div className="grid sm:grid-cols-2 gap-3">
-        <input className="border rounded-xl px-3 py-2 text-sm" placeholder="Full name" value={name} onChange={(e)=>setName(e.target.value)} />
-        <input className="border rounded-xl px-3 py-2 text-sm" placeholder="Email" value={email} onChange={(e)=>setEmail(e.target.value)} />
-        <input className="border rounded-xl px-3 py-2 text-sm sm:col-span-2" placeholder="Department (optional)" value={dept} onChange={(e)=>setDept(e.target.value)} />
+  if (done) {
+    return (
+      <div className="rounded-2xl border bg-white p-4">
+        {done.status === 'confirmed' ? (
+          <>
+            <h3 className="text-lg font-semibold">Registration confirmed</h3>
+            <p className="mt-1 text-sm text-gray-700">
+              We’ve sent a confirmation email with your ticket.
+            </p>
 
-        {/* Custom Questions */}
-        {questions.map((q) => (
-          <div key={q.id} className={q.type === 'long_text' ? 'sm:col-span-2' : ''}>
-            <label className="text-sm">{q.label}{q.required && ' *'}</label>
-            {q.type === 'short_text' && (
-              <input className="mt-1 border rounded-xl px-3 py-2 text-sm w-full"
-                     value={answers[q.id] || ''} onChange={(e)=>setAns(q.id, e.target.value)} />
+            {/* Big download button + helper text */}
+            <div className="mt-4 rounded-2xl border bg-white p-4">
+              <p className="text-sm text-gray-800">
+                <strong>Please download your mobile ticket QR code.</strong>
+                <br />
+                This is your ticket to entry <strong>Rise Together</strong>. Please do not discard.
+              </p>
+
+              <a
+                href={`${(done.ticketUrl || '#')}${(done.ticketUrl || '').includes('?') ? '&' : '?'}autodl=1`}
+                className="inline-block mt-3 px-4 py-2 rounded-xl border text-sm font-semibold"
+              >
+                Download QR Code
+              </a>
+            </div>
+
+            {/* Optional: plain “View ticket” link */}
+            {done.ticketUrl && (
+              <p className="mt-3 text-sm">
+                Or <a className="underline" href={done.ticketUrl}>view your ticket</a>.
+              </p>
             )}
-            {q.type === 'long_text' && (
-              <textarea rows={3} className="mt-1 border rounded-xl px-3 py-2 text-sm w-full"
-                        value={answers[q.id] || ''} onChange={(e)=>setAns(q.id, e.target.value)} />
-            )}
-            {q.type === 'select' && (
-              <select className="mt-1 border rounded-xl px-3 py-2 text-sm w-full"
-                      value={answers[q.id] || ''} onChange={(e)=>setAns(q.id, e.target.value)}>
-                <option value="">Select…</option>
-                {(q.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            )}
-            {q.type === 'multiselect' && (
-              <div className="mt-1 flex flex-wrap gap-2">
-                {(q.options || []).map(opt => {
-                  const arr = Array.isArray(answers[q.id]) ? answers[q.id] : []
-                  const checked = arr.includes(opt)
-                  return (
-                    <label key={opt} className="inline-flex items-center gap-1 text-sm border rounded-lg px-2 py-1">
-                      <input type="checkbox" checked={checked}
-                             onChange={(e)=>{
-                               const next = new Set(arr)
-                               e.target.checked ? next.add(opt) : next.delete(opt)
-                               setAns(q.id, Array.from(next))
-                             }} />
-                      {opt}
-                    </label>
-                  )
-                })}
+          </>
+        ) : (
+          <>
+            <h3 className="text-lg font-semibold">You’re on the waitlist</h3>
+            <p className="mt-1 text-sm text-gray-700">
+              We’ll email you if a spot opens up. No ticket is issued yet.
+            </p>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="rounded-2xl border bg-white p-4">
+      <h3 className="text-lg font-semibold">
+        {isFull ? 'Join waitlist' : 'Register'}
+      </h3>
+      <p className="mt-1 text-sm text-gray-600">
+        {isFull ? 'This event is currently full.' : `${seatsLeft} seat${seatsLeft === 1 ? '' : 's'} left`}
+      </p>
+
+      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-sm">Full name</label>
+          <input
+            className="border rounded-xl px-3 py-2 text-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-sm">Email</label>
+          <input
+            type="email"
+            className="border rounded-xl px-3 py-2 text-sm"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
+        <div className="sm:col-span-2 flex flex-col gap-1">
+          <label className="text-sm">Department (optional)</label>
+          <input
+            className="border rounded-xl px-3 py-2 text-sm"
+            value={dept}
+            onChange={(e) => setDept(e.target.value)}
+          />
+        </div>
+
+        {/* Custom questions */}
+        {questions.map((q) => {
+          const t = (q.type || '').toLowerCase()
+          const opts = (q.options || []) as string[]
+          const qid = q.id
+
+          if (t === 'textarea') {
+            return (
+              <div key={qid} className="sm:col-span-2 flex flex-col gap-1">
+                <label className="text-sm">
+                  {q.label} {q.required ? '*' : ''}
+                </label>
+                <textarea
+                  rows={3}
+                  className="border rounded-xl px-3 py-2 text-sm"
+                  value={answers[qid] || ''}
+                  onChange={(e) => setAnswer(qid, e.target.value)}
+                  required={!!q.required}
+                />
               </div>
-            )}
-            {q.type === 'checkbox' && (
-              <div className="mt-1">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={!!answers[q.id]} onChange={(e)=>setAns(q.id, e.target.checked)} />
-                  {q.label}
+            )
+          }
+
+          if (t === 'select') {
+            return (
+              <div key={qid} className="sm:col-span-2 flex flex-col gap-1">
+                <label className="text-sm">
+                  {q.label} {q.required ? '*' : ''}
+                </label>
+                <select
+                  className="border rounded-xl px-3 py-2 text-sm"
+                  value={answers[qid] || ''}
+                  onChange={(e) => setAnswer(qid, e.target.value)}
+                  required={!!q.required}
+                >
+                  <option value="">Select…</option>
+                  {opts.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+            )
+          }
+
+          if (t === 'multiselect' || t === 'checkboxes') {
+            const selected: string[] = Array.isArray(answers[qid]) ? answers[qid] : []
+            return (
+              <div key={qid} className="sm:col-span-2">
+                <label className="text-sm">
+                  {q.label} {q.required ? '*' : ''}
+                </label>
+                <div className="mt-1 flex flex-wrap gap-3">
+                  {opts.map((o) => (
+                    <label key={o} className="text-sm flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(o)}
+                        onChange={() => toggleMulti(qid, o)}
+                      />
+                      {o}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )
+          }
+
+          if (t === 'checkbox' || t === 'boolean') {
+            return (
+              <div key={qid} className="sm:col-span-2">
+                <label className="text-sm flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!answers[qid]}
+                    onChange={(e) => setAnswer(qid, e.target.checked)}
+                  />
+                  {q.label} {q.required ? '*' : ''}
                 </label>
               </div>
-            )}
-          </div>
-        ))}
+            )
+          }
+
+          // default: text
+          return (
+            <div key={qid} className="sm:col-span-2 flex flex-col gap-1">
+              <label className="text-sm">
+                {q.label} {q.required ? '*' : ''}
+              </label>
+              <input
+                className="border rounded-xl px-3 py-2 text-sm"
+                value={answers[qid] || ''}
+                onChange={(e) => setAnswer(qid, e.target.value)}
+                required={!!q.required}
+              />
+            </div>
+          )
+        })}
       </div>
 
-      <div className="mt-3 flex gap-2">
-        <button disabled={loading} onClick={submit} className="px-4 py-2 rounded-xl text-sm border">
-          {isFull ? 'Join Waitlist' : 'Register'}
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+      <div className="mt-4">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="px-4 py-2 rounded-xl border text-sm"
+        >
+          {submitting ? 'Submitting…' : isFull ? 'Join waitlist' : 'Register'}
         </button>
       </div>
-      {status && <p className="text-sm mt-3">{status}</p>}
-    </div>
+    </form>
   )
 }
