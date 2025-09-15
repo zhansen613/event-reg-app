@@ -86,10 +86,17 @@ export default function RegisterForm({
           answers,
         }),
       })
-      const json = (await res.json()) as DoneResult
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || 'Registration failed')
+
+      // Parse JSON if possible, else grab raw text for error display
+      let json: DoneResult | null = null
+      let text = ''
+      try { json = (await res.json()) as DoneResult } catch { text = await res.text() }
+
+      if (!res.ok || !json?.ok) {
+        const msg = (json && json.error) || text || `HTTP ${res.status}`
+        throw new Error(msg)
       }
+
       setDone(json)
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
