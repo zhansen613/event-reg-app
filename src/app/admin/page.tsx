@@ -202,6 +202,7 @@ export default function Admin() {
               <button onClick={()=>viewRegs(e)} className="px-3 py-1.5 rounded-lg border text-xs">Registrations</button>
               <a href={`/admin/questions?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Questions</a>
               <a href={`/admin/insights?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Insights</a>
+              <a href={`/admin/sections?eventId=${e.id}`} className="px-3 py-1.5 rounded-lg border text-xs">Sections</a>
             </div>
           </div>
         ))}
