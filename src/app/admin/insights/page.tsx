@@ -2,7 +2,9 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { format } from 'date-fns'
 
+/* ---------------- Modal ---------------- */
 function Modal({ open, onClose, children, title }: any) {
   if (!open) return null
   return (
@@ -18,13 +20,44 @@ function Modal({ open, onClose, children, title }: any) {
   )
 }
 
+/* ---------------- Types ---------------- */
+type Question = {
+  id: string
+  label: string
+  type: string
+  required?: boolean
+  options?: string[] | null
+  position?: number
+}
+
+type Registration = {
+  id: string
+  name: string
+  email: string
+  dept?: string | null
+  status: 'confirmed' | 'waitlisted' | 'cancelled'
+  attended?: boolean | null
+  checkin_at?: string | null
+  created_at: string
+  answers: Record<string, unknown> | null
+}
+
+type EventLite = {
+  id: string
+  title: string
+  start_at: string | null
+  location: string | null
+  capacity: number | null
+  image_url?: string | null
+}
+
+/* ---------------- Helpers ---------------- */
 // minimal CSV parser (handles quotes and commas)
 function parseCSV(text: string): string[][] {
   const rows: string[][] = []
   let row: string[] = []
   let cur = ''
   let inQ = false
-
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
     if (inQ) {
@@ -37,15 +70,13 @@ function parseCSV(text: string): string[][] {
       if (ch === '"') inQ = true
       else if (ch === ',') { row.push(cur); cur = '' }
       else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = '' }
-      else if (ch === '\r') { /* swallow */ }
+      else if (ch === '\r') { /* ignore */ }
       else cur += ch
     }
   }
-  // tail
   row.push(cur)
   rows.push(row)
-  // trim trailing empty line if present
-  if (rows.length && rows[rows.length-1].every(c => c === '')) rows.pop()
+  if (rows.length && rows[rows.length - 1].every(c => c === '')) rows.pop()
   return rows
 }
 
@@ -59,34 +90,142 @@ function useAdminHeaders() {
   return { ok, secret, headers: useMemo(() => ({ 'x-admin-secret': secret }), [secret]), setSecret, setOk }
 }
 
+/* ---------------- Insights Inner Page ---------------- */
 function InsightsInner() {
   const search = useSearchParams()
   const eventId = search.get('eventId') || ''
   const { ok, secret, headers, setSecret, setOk } = useAdminHeaders()
 
-  const [stats, setStats] = useState<any | null>(null)
+  // Core data
+  const [event, setEvent] = useState<EventLite | null>(null)
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [regs, setRegs] = useState<Registration[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // Expected vs Registered diff
+  const [expectedStats, setExpectedStats] = useState<any | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [preview, setPreview] = useState<Array<{name: string; email: string; dept?: string}>>([])
 
-  const fetchStats = async () => {
+  /* ----- fetchers ----- */
+  const fetchAll = async () => {
     if (!eventId) return
     setLoading(true); setErr(null)
     try {
-      const res = await fetch(`/api/admin/insights?eventId=${encodeURIComponent(eventId)}`, { headers })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Fetch failed')
-      setStats(json)
-    } catch (e:any) {
+      // 1) Event list (find the one we need)
+      const evRes = await fetch('/api/admin/events', { headers })
+      const evJson = await evRes.json()
+      if (!evRes.ok) throw new Error(evJson.error || 'Failed to fetch events')
+      const ev: EventLite | undefined = (evJson.events || []).find((e: EventLite) => e.id === eventId)
+      setEvent(ev || null)
+
+      // 2) Questions
+      const qRes = await fetch(`/api/admin/questions?eventId=${encodeURIComponent(eventId)}`, { headers })
+      const qJson = await qRes.json()
+      if (!qRes.ok) throw new Error(qJson.error || 'Failed to fetch questions')
+      setQuestions(qJson.questions || [])
+
+      // 3) Registrations
+      const rRes = await fetch(`/api/admin/registrations?eventId=${encodeURIComponent(eventId)}`, { headers })
+      const rJson = await rRes.json()
+      if (!rRes.ok) throw new Error(rJson.error || 'Failed to fetch registrations')
+      setRegs(rJson.registrations || [])
+
+      // 4) Expected vs Registered stats
+      const sRes = await fetch(`/api/admin/insights?eventId=${encodeURIComponent(eventId)}`, { headers })
+      const sJson = await sRes.json()
+      if (!sRes.ok) throw new Error(sJson.error || 'Failed to fetch expected stats')
+      setExpectedStats(sJson)
+    } catch (e: any) {
       setErr(e.message || 'Fetch failed')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { if (ok && eventId) fetchStats() }, [ok, eventId])
+  useEffect(() => { if (ok && eventId) fetchAll() }, [ok, eventId])
 
+  /* ----- computed: summary cards ----- */
+  const counts = useMemo(() => {
+    const confirmed = regs.filter(r => r.status === 'confirmed').length
+    const waitlisted = regs.filter(r => r.status === 'waitlisted').length
+    const cancelled = regs.filter(r => r.status === 'cancelled').length
+    const attended = regs.filter(r => !!r.attended).length
+    const capacity = event?.capacity ?? 0
+    const seatsLeft = Math.max((capacity || 0) - confirmed, 0)
+    return { confirmed, waitlisted, cancelled, attended, capacity: capacity || 0, seatsLeft }
+  }, [regs, event])
+
+  /* ----- computed: per-question tallies (for select, multiselect, checkboxes, boolean) ----- */
+  type QStat = {
+    id: string
+    label: string
+    kind: 'select' | 'multiselect' | 'checkboxes' | 'boolean' | 'text'
+    totals?: { option: string; count: number }[]
+    responses?: number
+  }
+
+  const questionStats: QStat[] = useMemo(() => {
+    const stats: QStat[] = []
+    const nonCancelled = regs.filter(r => r.status !== 'cancelled')
+    const answersList = nonCancelled.map(r => r.answers || {})
+
+    for (const q of questions) {
+      const t = (q.type || '').toLowerCase()
+      const qid = q.id
+      const label = q.label || ''
+
+      if (t === 'select' || t === 'multiselect' || t === 'checkboxes') {
+        const options = (q.options || []) as string[]
+        const countsMap = new Map<string, number>()
+        for (const opt of options) countsMap.set(opt, 0)
+
+        for (const ans of answersList) {
+          const v = (ans as any)[qid]
+          if (v == null) continue
+          if (Array.isArray(v)) {
+            for (const item of v) {
+              const key = String(item)
+              countsMap.set(key, (countsMap.get(key) || 0) + 1)
+            }
+          } else {
+            const key = String(v)
+            countsMap.set(key, (countsMap.get(key) || 0) + 1)
+          }
+        }
+        const totals = options.map((o) => ({ option: o, count: countsMap.get(o) || 0 }))
+        stats.push({ id: qid, label, kind: t as any, totals })
+        continue
+      }
+
+      if (t === 'checkbox' || t === 'boolean') {
+        let yes = 0, no = 0
+        for (const ans of answersList) {
+          const v = (ans as any)[qid]
+          if (v === true) yes++
+          else if (v === false) no++
+        }
+        stats.push({ id: qid, label, kind: 'boolean', totals: [{ option: 'Yes', count: yes }, { option: 'No', count: no }] })
+        continue
+      }
+
+      // text/textarea: count responses
+      let responses = 0
+      for (const ans of answersList) {
+        const v = (ans as any)[qid]
+        if (v != null && String(v).trim() !== '') responses++
+      }
+      stats.push({ id: qid, label, kind: 'text', responses })
+    }
+
+    // order by question position if available
+    const withPos = questions.reduce<Record<string, number>>((m, q) => { m[q.id] = q.position ?? 0; return m }, {})
+    stats.sort((a, b) => (withPos[a.id] ?? 0) - (withPos[b.id] ?? 0))
+    return stats
+  }, [questions, regs])
+
+  /* ----- CSV import for expected registrants ----- */
   const handleFile = async (file: File) => {
     setErr(null)
     try {
@@ -99,7 +238,6 @@ function InsightsInner() {
         const nameIdx = header.findIndex(h => ['name','full name'].includes(h))
         const emailIdx = header.findIndex(h => ['email','e-mail'].includes(h))
         const deptIdx = header.findIndex(h => ['dept','department'].includes(h))
-
         if (nameIdx === -1 || emailIdx === -1) throw new Error('CSV must have "name" and "email" columns')
 
         const data: Array<{name:string; email:string; dept?:string}> = []
@@ -116,23 +254,6 @@ function InsightsInner() {
         setImportOpen(true)
         return
       }
-
-      // Excel support (optional): un-comment after adding "xlsx" dependency and a module declaration
-      // const XLSX: any = await import('xlsx')
-      // const buf = await file.arrayBuffer()
-      // const wb = XLSX.read(buf)
-      // const ws = wb.Sheets[wb.SheetNames[0]]
-      // const json = XLSX.utils.sheet_to_json(ws, { defval: '' }) as any[]
-      // const mapped = json.map(row => ({
-      //   name: String(row.name || row.Name || row['Full Name'] || '').trim(),
-      //   email: String(row.email || row.Email || row['E-mail'] || '').trim(),
-      //   dept: String(row.dept || row.department || row.Department || '').trim()
-      // })).filter(r => r.name && r.email)
-      // if (!mapped.length) throw new Error('No rows with name+email found')
-      // setPreview(mapped)
-      // setImportOpen(true)
-      // return
-
       throw new Error('Unsupported file. Please upload a CSV with "name" and "email" columns.')
     } catch (e:any) {
       setErr(e.message || 'Parse failed')
@@ -151,7 +272,11 @@ function InsightsInner() {
       if (!res.ok) throw new Error(json.error || 'Import failed')
       setImportOpen(false)
       setPreview([])
-      await fetchStats()
+      // refresh expected stats only
+      const sRes = await fetch(`/api/admin/insights?eventId=${encodeURIComponent(eventId)}`, { headers })
+      const sJson = await sRes.json()
+      if (!sRes.ok) throw new Error(sJson.error || 'Failed to refresh expected stats')
+      setExpectedStats(sJson)
       alert(`Imported ${json.insertedOrUpdated} row(s).`)
     } catch (e:any) {
       setErr(e.message || 'Import failed')
@@ -159,23 +284,15 @@ function InsightsInner() {
   }
 
   const exportMissingCSV = () => {
-    if (!stats?.expected_missing?.length) return
-
+    if (!expectedStats?.expected_missing?.length) return
     const header: string[] = ['name', 'email', 'dept']
-    const data: string[][] = (stats.expected_missing as any[]).map((r) => [
-      String(r.name || ''),
-      String(r.email || ''),
-      String(r.dept || ''),
+    const data: string[][] = (expectedStats.expected_missing as any[]).map((r) => [
+      String(r.name || ''), String(r.email || ''), String(r.dept || ''),
     ])
     const rows: string[][] = [header, ...data]
-
-    // Explicitly type the map params so TS doesn't infer `any`
     const csv = rows
-      .map((r: string[]) =>
-        r.map((v: string) => `"${v.replace(/"/g, '""')}"`).join(',')
-      )
+      .map((r: string[]) => r.map((v: string) => `"${v.replace(/"/g, '""')}"`).join(','))
       .join('\n')
-
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -185,6 +302,7 @@ function InsightsInner() {
     URL.revokeObjectURL(url)
   }
 
+  /* ----- UI states ----- */
   if (!ok) {
     return (
       <main className="max-w-sm mx-auto p-6">
@@ -220,8 +338,17 @@ function InsightsInner() {
 
   return (
     <main className="mx-auto max-w-5xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Insights</h1>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">
+            {event?.title || 'Insights'}
+          </h1>
+          <p className="text-sm text-gray-600">
+            {event?.start_at ? format(new Date(event.start_at), 'PPP p') : 'TBA'}
+            {event?.location ? ` · ${event.location}` : ''}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <label className="px-3 py-2 rounded-xl border text-sm cursor-pointer">
             Import CSV
@@ -232,60 +359,101 @@ function InsightsInner() {
               onChange={(e)=>{ const f = e.target.files?.[0]; if (f) handleFile(f) }}
             />
           </label>
-          <button onClick={fetchStats} className="px-3 py-2 rounded-xl border text-sm">Refresh</button>
+          <button onClick={fetchAll} className="px-3 py-2 rounded-xl border text-sm">Refresh</button>
         </div>
       </div>
 
-      {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
+      {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        <div className="rounded-2xl border bg-white p-4">
-          <p className="text-xs text-gray-500">Expected</p>
-          <p className="text-2xl font-semibold">{stats?.expected_total ?? '—'}</p>
-        </div>
-        <div className="rounded-2xl border bg-white p-4">
-          <p className="text-xs text-gray-500">Registered</p>
-          <p className="text-2xl font-semibold">{stats?.registered_total ?? '—'}</p>
-        </div>
-        <div className="rounded-2xl border bg-white p-4">
-          <p className="text-xs text-gray-500">Not yet registered</p>
-          <p className="text-2xl font-semibold">{stats?.missing_total ?? '—'}</p>
-        </div>
+      {/* Summary cards */}
+      <div className="mt-4 grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card label="Capacity" value={counts.capacity} />
+        <Card label="Confirmed" value={counts.confirmed} />
+        <Card label="Waitlisted" value={counts.waitlisted} />
+        <Card label="Cancelled" value={counts.cancelled} />
+        <Card label="Attended" value={counts.attended} />
+        <Card label="Seats left" value={counts.seatsLeft} />
       </div>
 
-      <div className="mt-6 rounded-2xl border bg-white p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Not yet registered</h3>
-          <button
-            disabled={!stats?.expected_missing?.length}
-            onClick={exportMissingCSV}
-            className="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-50"
-          >
-            Export CSV
-          </button>
-        </div>
-        <div className="mt-2 max-h-96 overflow-auto border rounded-xl">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-2">Name</th>
-                <th className="text-left p-2">Email</th>
-                <th className="text-left p-2">Dept</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(stats?.expected_missing || []).map((r:any, i:number) => (
-                <tr key={i} className="border-t">
-                  <td className="p-2">{r.name}</td>
-                  <td className="p-2">{r.email}</td>
-                  <td className="p-2">{r.dept || ''}</td>
-                </tr>
-              ))}
-              {(!stats?.expected_missing || stats.expected_missing.length === 0) && (
-                <tr><td colSpan={3} className="p-2 text-gray-600">All expected registrants have registered.</td></tr>
+      {/* Per-question tallies (e.g., T-shirt counts) */}
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold">By question</h3>
+        <div className="mt-2 grid sm:grid-cols-2 gap-4">
+          {questionStats.map((qs) => (
+            <div key={qs.id} className="rounded-2xl border bg-white p-4">
+              <p className="text-sm font-medium">{qs.label}</p>
+              {qs.kind === 'text' ? (
+                <p className="text-sm text-gray-600 mt-2">{qs.responses ?? 0} response(s)</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {(qs.totals || []).map((t) => {
+                    const totalRegs = Math.max(regs.filter(r => r.status !== 'cancelled').length, 1)
+                    const pct = Math.round((t.count / totalRegs) * 100)
+                    return (
+                      <div key={t.option}>
+                        <div className="flex items-center justify-between text-xs">
+                          <span>{t.option}</span>
+                          <span>{t.count}</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded">
+                          <div className="h-2 rounded bg-gray-400" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
-            </tbody>
-          </table>
+            </div>
+          ))}
+          {questionStats.length === 0 && (
+            <div className="text-sm text-gray-600">No custom questions yet.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Expected vs Registered section */}
+      <div className="mt-8">
+        <h3 className="text-lg font-semibold">Expected vs. registered</h3>
+        <div className="mt-2 grid sm:grid-cols-3 gap-3">
+          <Card label="Expected" value={expectedStats?.expected_total ?? '—'} />
+          <Card label="Registered" value={expectedStats?.registered_total ?? '—'} />
+          <Card label="Not yet registered" value={expectedStats?.missing_total ?? '—'} />
+        </div>
+
+        <div className="mt-4 rounded-2xl border bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-md font-semibold">Not yet registered</h4>
+            <button
+              disabled={!expectedStats?.expected_missing?.length}
+              onClick={exportMissingCSV}
+              className="px-3 py-1.5 rounded-lg border text-xs disabled:opacity-50"
+            >
+              Export CSV
+            </button>
+          </div>
+          <div className="mt-2 max-h-96 overflow-auto border rounded-xl">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left p-2">Name</th>
+                  <th className="text-left p-2">Email</th>
+                  <th className="text-left p-2">Dept</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(expectedStats?.expected_missing || []).map((r: any, i: number) => (
+                  <tr key={i} className="border-t">
+                    <td className="p-2">{r.name}</td>
+                    <td className="p-2">{r.email}</td>
+                    <td className="p-2">{r.dept || ''}</td>
+                  </tr>
+                ))}
+                {(!expectedStats?.expected_missing || expectedStats.expected_missing.length === 0) && (
+                  <tr><td colSpan={3} className="p-2 text-gray-600">All expected registrants have registered.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -319,6 +487,17 @@ function InsightsInner() {
   )
 }
 
+/* ---------------- Small Card ---------------- */
+function Card({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-2xl border bg-white p-4">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-2xl font-semibold">{value}</p>
+    </div>
+  )
+}
+
+/* ---------------- Page wrapper with Suspense ---------------- */
 export default function InsightsPage() {
   return (
     <Suspense fallback={<main className="max-w-5xl mx-auto p-6">Loading…</main>}>
