@@ -1,9 +1,12 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+
+export const dynamic = 'force-dynamic'
+
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import QRCode from 'qrcode'
 
-export default function TicketPage() {
+function TicketInner() {
   const sp = useSearchParams()
   const token = sp.get('t') || '' // registrationId
   const autodl = sp.get('autodl') === '1'
@@ -11,7 +14,6 @@ export default function TicketPage() {
 
   const checkinUrl = useMemo(() => {
     if (typeof window === 'undefined' || !token) return ''
-    // Always use your public site origin
     const origin = window.location.origin
     return `${origin}/checkin?code=${encodeURIComponent(token)}`
   }, [token])
@@ -74,5 +76,13 @@ export default function TicketPage() {
         </a>
       </div>
     </main>
+  )
+}
+
+export default function TicketPage() {
+  return (
+    <Suspense fallback={<main className="max-w-md mx-auto p-6">Loading…</main>}>
+      <TicketInner />
+    </Suspense>
   )
 }
