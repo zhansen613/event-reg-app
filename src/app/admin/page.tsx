@@ -420,6 +420,10 @@ function EventForm({ initial, onSave, secret }: any) {
   const [location, setLocation] = useState(initial?.location || '')
   const [imageUrl, setImageUrl] = useState(initial?.image_url || '')
   const [uploading, setUploading] = useState(false)
+
+  // ✅ Published toggle (this was missing)
+  const [published, setPublished] = useState<boolean>(initial?.is_published ?? true)
+
   const [startAt, setStartAt] = useState<string>(() => {
     if (!initial?.start_at) return ''
     const d = new Date(initial.start_at)
@@ -437,6 +441,8 @@ function EventForm({ initial, onSave, secret }: any) {
       start_at: startAt ? new Date(startAt).toISOString() : null,
       capacity: Number(capacity),
       registration_blurb: registrationBlurb || null,
+      // ✅ send to API
+      is_published: !!published,
     }
     await onSave(payload)
   }
@@ -477,6 +483,18 @@ function EventForm({ initial, onSave, secret }: any) {
         <div className="flex flex-col gap-1 sm:col-span-2">
           <label className="text-sm">Description</label>
           <textarea className="border rounded-xl px-3 py-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
+        </div>
+
+        {/* ✅ Published switch */}
+        <div className="flex items-center gap-2 sm:col-span-2">
+          <input
+            id="published"
+            type="checkbox"
+            className="align-middle"
+            checked={published}
+            onChange={(e)=>setPublished(e.target.checked)}
+          />
+          <label htmlFor="published" className="text-sm">Published (registration open)</label>
         </div>
 
         <div className="flex flex-col gap-1 sm:col-span-2">
