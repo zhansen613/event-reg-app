@@ -7,24 +7,23 @@ function checkSecret(req: Request) {
   return hdr && secret && hdr === secret
 }
 
+// PATCH /api/admin/events/:id
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   if (!checkSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json()
+  const updates: any = {}
+  for (const k of ['title','description','location','image_url','start_at','capacity','registration_blurb']) {
+    if (body[k] !== undefined) updates[k] = body[k]
+  }
+  if (typeof body.is_published === 'boolean') updates.is_published = body.is_published
+
   const sb = supabaseServer()
-  const { error } = await sb.from('events').update({
-    title: body.title,
-    description: body.description,
-    location: body.location,
-    start_at: body.start_at,
-    end_at: body.end_at || null,
-    capacity: body.capacity,
-    image_url: body.image_url || null,
-    registration_blurb: body.registration_blurb || null,
-  }).eq('id', params.id)
+  const { error } = await sb.from('events').update(updates).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
 
+// DELETE /api/admin/events/:id
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   if (!checkSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const sb = supabaseServer()
