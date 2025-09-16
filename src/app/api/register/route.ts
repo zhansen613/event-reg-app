@@ -15,6 +15,24 @@ export async function POST(req: Request) {
 
     const sb = supabaseServer()
 
+    // ✅ NEW: Block registration if the event is not published
+    {
+      const { data: ev, error: evErr } = await sb
+        .from('events')
+        .select('is_published')
+        .eq('id', eventId)
+        .single()
+      if (evErr) {
+        return NextResponse.json({ ok: false, error: evErr.message }, { status: 500 })
+      }
+      if (!ev?.is_published) {
+        return NextResponse.json(
+          { ok: false, error: 'Registration is not open for this event yet.' },
+          { status: 403 }
+        )
+      }
+    }
+
     // Prevent duplicate (non-cancelled) registration for same event + email
     {
       const { data: existing, error } = await sb
