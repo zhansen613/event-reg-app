@@ -69,15 +69,22 @@ export default async function EventPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
-      {/* Registration form */}
-      <div className="mt-6">
-        <RegisterForm
-          eventId={event.id}
-          isFull={isFull}
-          seatsLeft={seatsLeft}
-          questions={questions}
-        />
-      </div>
-    </main>
-  )
-}
+      {/* Registration area */}
+<div className="mt-6">
+  {event.is_published ? (
+    <RegisterForm
+      eventId={event.id}
+      isFull={isFull}
+      seatsLeft={seatsLeft}
+      questions={questions}
+    />
+  ) : (
+    <div className="rounded-2xl border bg-white p-4">
+      <h3 className="text-lg font-semibold text-red-700">Registration not open yet</h3>
+      <p className="mt-1 text-sm text-gray-700">
+        This event is visible, but registration isn’t open. Please check back soon.
+      </p>
+    </div>
+  )}
+</div>
+
