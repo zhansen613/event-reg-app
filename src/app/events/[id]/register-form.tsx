@@ -12,7 +12,7 @@ type Question = {
 
 type DoneResult = {
   ok: boolean
-  status: 'confirmed' | 'waitlisted'
+  status: 'confirmed' | 'waitlisted' | 'cancelled'
   registrationId?: string
   ticketUrl?: string | null
   error?: string
@@ -33,20 +33,29 @@ export default function RegisterForm({
   const [email, setEmail] = useState('')
   const [dept, setDept] = useState('')
 
+  // Find the gate question by label prefix "Are you attending"
+  const gateQ = useMemo(
+    () =>
+      (questions || []).find(
+        (q) =>
+          /^are you attending/i.test(q.label || '') &&
+          ((q.type || '').toLowerCase() === 'select' ||
+            (q.options && q.options.length > 0))
+      ),
+    [questions]
+  )
+
+  // Build initial answers (empty)
   const initialAnswers = useMemo(() => {
     const base: Record<string, any> = {}
     for (const q of questions) {
-      switch ((q.type || '').toLowerCase()) {
-        case 'checkbox':
-        case 'checkboxes':
-        case 'multiselect':
-          base[q.id] = []
-          break
-        case 'boolean':
-          base[q.id] = false
-          break
-        default:
-          base[q.id] = ''
+      const t = (q.type || '').toLowerCase()
+      if (t === 'checkbox' || t === 'checkboxes' || t === 'multiselect') {
+        base[q.id] = []
+      } else if (t === 'boolean') {
+        base[q.id] = false
+      } else {
+        base[q.id] = ''
       }
     }
     return base
@@ -60,7 +69,6 @@ export default function RegisterForm({
   const setAnswer = (qid: string, val: any) => {
     setAnswers((a) => ({ ...a, [qid]: val }))
   }
-
   const toggleMulti = (qid: string, opt: string) => {
     setAnswers((a) => {
       const cur: string[] = Array.isArray(a[qid]) ? a[qid] : []
@@ -68,6 +76,13 @@ export default function RegisterForm({
       return { ...a, [qid]: has ? cur.filter((x) => x !== opt) : [...cur, opt] }
     })
   }
+
+  // Decide if the user declined based on gateQ value === "no"
+  const declined = useMemo(() => {
+    if (!gateQ) return false
+    const v = (answers[gateQ.id] || '').toString().trim().toLowerCase()
+    return v === 'no'
+  }, [gateQ, answers])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -84,19 +99,21 @@ export default function RegisterForm({
           email,
           dept: dept || undefined,
           answers,
+          decline: declined || undefined, // send decline flag if “No”
         }),
       })
 
-      // Parse JSON if possible, else grab raw text for error display
       let json: DoneResult | null = null
       let text = ''
-      try { json = (await res.json()) as DoneResult } catch { text = await res.text() }
-
+      try {
+        json = (await res.json()) as DoneResult
+      } catch {
+        text = await res.text()
+      }
       if (!res.ok || !json?.ok) {
         const msg = (json && json.error) || text || `HTTP ${res.status}`
         throw new Error(msg)
       }
-
       setDone(json)
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
@@ -105,7 +122,18 @@ export default function RegisterForm({
     }
   }
 
+  // Success states
   if (done) {
+    if (done.status === 'cancelled') {
+      return (
+        <div className="rounded-2xl border bg-white p-4">
+          <h3 className="text-lg font-semibold">Thanks for the RSVP</h3>
+          <p className="mt-1 text-sm text-gray-700">
+            You’ve indicated you <strong>are not attending</strong>. We appreciate the update.
+          </p>
+        </div>
+      )
+    }
     return (
       <div className="rounded-2xl border bg-white p-4">
         {done.status === 'confirmed' ? (
@@ -114,24 +142,21 @@ export default function RegisterForm({
             <p className="mt-1 text-sm text-gray-700">
               We’ve sent a confirmation email with your ticket.
             </p>
-
-            {/* Big download button + helper text */}
             <div className="mt-4 rounded-2xl border bg-white p-4">
               <p className="text-sm text-gray-800">
                 <strong>Please download your mobile ticket QR code.</strong>
                 <br />
                 This is your ticket to entry <strong>Rise Together</strong>. Please do not discard.
               </p>
-
               <a
-                href={`${(done.ticketUrl || '#')}${(done.ticketUrl || '').includes('?') ? '&' : '?'}autodl=1`}
+                href={`${(done.ticketUrl || '#')}${
+                  (done.ticketUrl || '').includes('?') ? '&' : '?'
+                }autodl=1`}
                 className="inline-block mt-3 px-4 py-2 rounded-xl border text-sm font-semibold"
               >
                 Download QR Code
               </a>
             </div>
-
-            {/* Optional: plain “View ticket” link */}
             {done.ticketUrl && (
               <p className="mt-3 text-sm">
                 Or <a className="underline" href={done.ticketUrl}>view your ticket</a>.
@@ -188,8 +213,36 @@ export default function RegisterForm({
           />
         </div>
 
-        {/* Custom questions */}
-        {questions.map((q) => {
+        {/* Gate question (always rendered right after email/department) */}
+        {gateQ && (
+          <div className="sm:col-span-2 flex flex-col gap-1">
+            <label className="text-sm">
+              {gateQ.label} *
+            </label>
+            <select
+              className="border rounded-xl px-3 py-2 text-sm"
+              value={answers[gateQ.id] || ''}
+              onChange={(e) => setAnswer(gateQ.id, e.target.value)}
+              required
+            >
+              <option value="">Select…</option>
+              {(gateQ.options || ['Yes', 'No']).map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+            {declined && (
+              <p className="text-xs text-gray-600 mt-1">
+                You’ve selected <strong>No</strong>. The rest of the form is hidden; you can submit now.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Other custom questions (hidden if declined) */}
+        {!declined && questions.map((q) => {
+          // Skip the gate question here (already rendered)
+          if (gateQ && q.id === gateQ.id) return null
+
           const t = (q.type || '').toLowerCase()
           const opts = (q.options || []) as string[]
           const qid = q.id
@@ -295,7 +348,7 @@ export default function RegisterForm({
           disabled={submitting}
           className="px-4 py-2 rounded-xl border text-sm"
         >
-          {submitting ? 'Submitting…' : isFull ? 'Join waitlist' : 'Register'}
+          {submitting ? 'Submitting…' : declined ? 'Submit RSVP' : isFull ? 'Join waitlist' : 'Register'}
         </button>
       </div>
     </form>
