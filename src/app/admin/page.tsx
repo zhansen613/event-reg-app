@@ -39,6 +39,9 @@ export default function Admin() {
   const [copyOpen, setCopyOpen] = useState(false)
   const [copyFrom, setCopyFrom] = useState<any | null>(null)
 
+  // NEW: quick search for registrants (name/email/dept)
+  const [regSearch, setRegSearch] = useState('')
+
   useEffect(() => {
     const s = localStorage.getItem('admin_secret')
     if (s) setSecret(s)
@@ -92,6 +95,7 @@ export default function Admin() {
 
   const viewRegs = async (ev: any) => {
     setActiveEvent(ev)
+    setRegSearch('')
     const res = await fetch(`/api/admin/registrations?eventId=${ev.id}`, { headers })
     const json = await res.json()
     setRegs(json.registrations || [])
@@ -141,32 +145,29 @@ export default function Admin() {
     if (activeEvent) viewRegs(activeEvent)
   }
 
-  // Copy Event
-  const openCopy = (ev: any) => { setCopyFrom(ev); setCopyOpen(true) }
-  const doCopy = async (payload: {
-    title?: string
-    start_at?: string|null
-    location?: string|null
-    capacity?: number|null
-    copy_questions?: boolean
-    copy_sections?: boolean
-    copy_image?: boolean
-    copy_blurb?: boolean
-  }) => {
-    if (!copyFrom) return
-    const res = await fetch(`/api/admin/events/${copyFrom.id}/copy`, {
-      method: 'POST',
+  // NEW: Manual check-in (and undo)
+  const checkInRegistrant = async (regId: string) => {
+    const res = await fetch(`/api/admin/registrations/${regId}`, {
+      method: 'PATCH',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ attended: true, checkin_at: new Date().toISOString() })
     })
-    const json = await res.json()
-    if (!res.ok) { alert(json.error || 'Copy failed'); return }
-    setCopyOpen(false)
-    await refresh()
-    alert('Event copied! You can now Edit the new event in the list.')
+    const json = await res.json().catch(()=> ({}))
+    if (!res.ok) { alert(json?.error || 'Check-in failed'); return }
+    if (activeEvent) viewRegs(activeEvent)
+  }
+  const undoCheckInRegistrant = async (regId: string) => {
+    const res = await fetch(`/api/admin/registrations/${regId}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attended: false, checkin_at: null })
+    })
+    const json = await res.json().catch(()=> ({}))
+    if (!res.ok) { alert(json?.error || 'Undo failed'); return }
+    if (activeEvent) viewRegs(activeEvent)
   }
 
-  // Dynamic CSV (unchanged)
+  // CSV export (unchanged)
   const exportCSV = async () => {
     if (!activeEvent) {
       alert('Open Registrations for an event first')
@@ -216,6 +217,15 @@ export default function Admin() {
       alert(e.message || 'Export failed')
     }
   }
+
+  // Derived: filtered registrants by quick search
+  const visibleRegs = useMemo(() => {
+    const q = regSearch.trim().toLowerCase()
+    if (!q) return regs
+    return regs.filter((r: any) =>
+      [r.name, r.email, r.dept].some(v => (v || '').toLowerCase().includes(q))
+    )
+  }, [regs, regSearch])
 
   if (!secretOk) {
     return (
@@ -273,9 +283,11 @@ export default function Admin() {
 
       {/* Registrations Modal */}
       <Modal open={regOpen} onClose={()=>setRegOpen(false)} title={`Registrations — ${activeEvent?.title || ''}`}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col gap-3 mb-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <p className="text-sm text-gray-600">{regs.length} total</p>
+            <p className="text-sm text-gray-600">
+              {visibleRegs.length}/{regs.length} shown
+            </p>
             <label className="text-xs flex items-center gap-2">
               <input
                 type="checkbox"
@@ -287,6 +299,14 @@ export default function Admin() {
             </label>
           </div>
           <div className="flex items-center gap-2">
+            {/* NEW: quick search */}
+            <input
+              type="search"
+              value={regSearch}
+              onChange={(e)=>setRegSearch(e.target.value)}
+              className="border rounded-xl px-3 py-1.5 text-sm"
+              placeholder="Find registrant…"
+            />
             <button onClick={()=>setAddOpen(true)} className="px-3 py-1.5 rounded-lg border text-xs">+ Add registrant</button>
             <button onClick={()=>activeEvent && viewRegs(activeEvent)} className="px-3 py-1.5 rounded-lg border text-xs">Refresh</button>
             <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg border text-xs">Export CSV</button>
@@ -308,7 +328,7 @@ export default function Admin() {
               </tr>
             </thead>
             <tbody>
-              {regs.map((r:any) => (
+              {visibleRegs.map((r:any) => (
                 <tr key={r.id} className="border-t">
                   <td className="p-2">{r.name}</td>
                   <td className="p-2">{r.email}</td>
@@ -318,6 +338,25 @@ export default function Admin() {
                   <td className="p-2">{r.checkin_at ? format(new Date(r.checkin_at), 'PP p') : ''}</td>
                   <td className="p-2">{format(new Date(r.created_at), 'PP p')}</td>
                   <td className="p-2 text-right">
+                    {/* NEW: Manual check-in / undo */}
+                    {r.status === 'confirmed' && !r.attended && (
+                      <button
+                        onClick={()=>checkInRegistrant(r.id)}
+                        className="px-2 py-1 rounded-lg border text-xs mr-2"
+                        title="Mark as checked in"
+                      >
+                        Check in
+                      </button>
+                    )}
+                    {r.attended && (
+                      <button
+                        onClick={()=>undoCheckInRegistrant(r.id)}
+                        className="px-2 py-1 rounded-lg border text-xs mr-2"
+                        title="Undo check-in"
+                      >
+                        Undo
+                      </button>
+                    )}
                     {r.status === 'waitlisted' && (
                       <button onClick={()=>promote(r.id)} className="px-2 py-1 rounded-lg border text-xs mr-2">Promote</button>
                     )}
@@ -327,8 +366,8 @@ export default function Admin() {
                   </td>
                 </tr>
               ))}
-              {regs.length === 0 && (
-                <tr><td className="p-2 text-gray-600 text-sm" colSpan={8}>No registrations yet.</td></tr>
+              {visibleRegs.length === 0 && (
+                <tr><td className="p-2 text-gray-600 text-sm" colSpan={8}>No matching registrants.</td></tr>
               )}
             </tbody>
           </table>
@@ -351,7 +390,18 @@ export default function Admin() {
           <CopyEventForm
             source={copyFrom}
             onCancel={()=>setCopyOpen(false)}
-            onCopy={doCopy}
+            onCopy={async (payload)=> {
+              const res = await fetch(`/api/admin/events/${copyFrom.id}/copy`, {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              })
+              const json = await res.json()
+              if (!res.ok) { alert(json.error || 'Copy failed'); return }
+              setCopyOpen(false)
+              await refresh()
+              alert('Event copied! You can now Edit the new event in the list.')
+            }}
           />
         )}
       </Modal>
@@ -359,7 +409,7 @@ export default function Admin() {
   )
 }
 
-/* ---------------- Event form (unchanged from your latest) ---------------- */
+/* ---------------- Event form ---------------- */
 function EventForm({ initial, onSave, secret }: any) {
   const [title, setTitle] = useState(initial?.title || '')
   const [description, setDescription] = useState(initial?.description || '')
@@ -367,7 +417,6 @@ function EventForm({ initial, onSave, secret }: any) {
   const [location, setLocation] = useState(initial?.location || '')
   const [imageUrl, setImageUrl] = useState(initial?.image_url || '')
   const [uploading, setUploading] = useState(false)
-  const [published, setPublished] = useState<boolean>(initial?.is_published ?? true)
   const [startAt, setStartAt] = useState<string>(() => {
     if (!initial?.start_at) return ''
     const d = new Date(initial.start_at)
@@ -385,7 +434,6 @@ function EventForm({ initial, onSave, secret }: any) {
       start_at: startAt ? new Date(startAt).toISOString() : null,
       capacity: Number(capacity),
       registration_blurb: registrationBlurb || null,
-      is_published: !!published,
     }
     await onSave(payload)
   }
@@ -426,11 +474,6 @@ function EventForm({ initial, onSave, secret }: any) {
         <div className="flex flex-col gap-1 sm:col-span-2">
           <label className="text-sm">Description</label>
           <textarea className="border rounded-xl px-3 py-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
-        </div>
-
-        <div className="flex items-center gap-2 sm:col-span-2">
-          <input id="published" type="checkbox" className="align-middle" checked={published} onChange={(e)=>setPublished(e.target.checked)} />
-          <label htmlFor="published" className="text-sm">Published (registration open)</label>
         </div>
 
         <div className="flex flex-col gap-1 sm:col-span-2">
@@ -483,8 +526,7 @@ function EventForm({ initial, onSave, secret }: any) {
   )
 }
 
-
-/* ---------------- Add Registrant form (unchanged) ---------------- */
+/* ---------------- Add Registrant form ---------------- */
 function AddRegistrantForm({
   onSave, onCancel
 }: {
@@ -549,7 +591,7 @@ function AddRegistrantForm({
 
       <div className="mt-4 flex items-center justify-end gap-2">
         <button onClick={onCancel} className="px-4 py-2 rounded-xl border text-sm">Cancel</button>
-        <button onClick={submit} className="px-4 py-2 rounded-xl border text-sm">Add</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-xl border text-sm">Add</button>
       </div>
     </div>
   )
