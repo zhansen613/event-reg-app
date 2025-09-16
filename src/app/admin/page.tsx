@@ -145,6 +145,9 @@ export default function Admin() {
     if (activeEvent) viewRegs(activeEvent)
   }
 
+  // ✅ NEW: define openCopy helper (was missing)
+  const openCopy = (ev: any) => { setCopyFrom(ev); setCopyOpen(true) }
+
   // NEW: Manual check-in (and undo)
   const checkInRegistrant = async (regId: string) => {
     const res = await fetch(`/api/admin/registrations/${regId}`, {
