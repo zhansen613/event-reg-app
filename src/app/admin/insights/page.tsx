@@ -117,8 +117,8 @@ function InsightsInner() {
         return
       }
 
-      // Excel support (optional): comment in after adding "xlsx" dependency + type
-      // const XLSX: any = await import('xlsx') // requires: npm i xlsx  and  src/types/xlsx.d.ts with: declare module 'xlsx';
+      // Excel support (optional): un-comment after adding "xlsx" dependency and a module declaration
+      // const XLSX: any = await import('xlsx')
       // const buf = await file.arrayBuffer()
       // const wb = XLSX.read(buf)
       // const ws = wb.Sheets[wb.SheetNames[0]]
@@ -160,8 +160,22 @@ function InsightsInner() {
 
   const exportMissingCSV = () => {
     if (!stats?.expected_missing?.length) return
-    const rows = [['name','email','dept'], ...stats.expected_missing.map((r:any) => [r.name, r.email, r.dept || ''])]
-    const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"','""')}"`).join(',')).join('\n')
+
+    const header: string[] = ['name', 'email', 'dept']
+    const data: string[][] = (stats.expected_missing as any[]).map((r) => [
+      String(r.name || ''),
+      String(r.email || ''),
+      String(r.dept || ''),
+    ])
+    const rows: string[][] = [header, ...data]
+
+    // Explicitly type the map params so TS doesn't infer `any`
+    const csv = rows
+      .map((r: string[]) =>
+        r.map((v: string) => `"${v.replace(/"/g, '""')}"`).join(',')
+      )
+      .join('\n')
+
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
